@@ -70,6 +70,14 @@ class LinearIssueRef(BaseModel):
     url: str = ""
 
 
+class LinearSessionRef(BaseModel):
+    """The Linear agent session a run reports to; the issue is in ``linear_issue``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = ""
+
+
 class GitHubIssueRef(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -82,6 +90,7 @@ class SourceContext(BaseModel):
 
     slack_thread: SlackThreadRef | None = None
     linear_issue: LinearIssueRef | None = None
+    linear_session: LinearSessionRef | None = None
     github_issue: GitHubIssueRef | None = None
     pr_number: int | None = None
 
