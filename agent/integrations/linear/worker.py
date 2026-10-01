@@ -10,9 +10,14 @@ from collections.abc import Mapping
 
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
-from langgraph_sdk.schema import Thread
+from langgraph_sdk.schema import Run, Thread
 
-from agent.integrations.linear.client import linear_activity_id, post_activity, set_session_link
+from agent.integrations.linear.client import (
+    app_user_id,
+    linear_activity_id,
+    post_activity,
+    set_session_link,
+)
 from agent.integrations.linear.events import (
     DelegationRemoved,
     LinearEvent,
@@ -25,6 +30,7 @@ from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef, SourceContext
 from agent.thread_ids import linear_issue_thread_id
 from agent.threads.creation import create_lock_thread
+from agent.threads.handlers import interrupt_transcript_turns
 from agent.users import User
 from agent.utils.dashboard_links import dashboard_thread_url
 from agent.webhooks import common
@@ -56,10 +62,7 @@ async def process_linear_event(event: LinearEvent) -> None:
             case SessionPrompted():
                 await _continue_session(event)
             case DelegationRemoved():
-                logger.info(
-                    "Linear issue undelegated",
-                    extra={"linear_issue_id": event.issue.id},
-                )
+                await _stop_after_undelegation(event)
     except Exception:
         logger.exception(
             "Linear event processing failed",
@@ -94,6 +97,8 @@ async def _start_session(event: SessionCreated) -> None:
 async def _continue_session(event: SessionPrompted) -> None:
     if event.signal == "stop":
         await _mark_stopped(event.session_id)
+        if event.issue is not None:
+            await _cancel_session_runs(linear_issue_thread_id(event.issue.id), {event.session_id})
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
         return
     if event.issue is None:
@@ -215,3 +220,44 @@ async def _is_stopped(session_id: str) -> bool:
             return False
         raise
     return True
+
+
+async def _stop_after_undelegation(event: DelegationRemoved) -> None:
+    """Linear leaves sessions running when the app stops being the delegate; stop them here."""
+    if event.previous_delegate_id != await app_user_id():
+        return
+    stopped = await _cancel_session_runs(linear_issue_thread_id(event.issue.id), None)
+    for session_id in stopped:
+        await post_activity(
+            session_id,
+            {"type": "response", "body": "Stopped: this issue is no longer delegated to me."},
+        )
+
+
+async def _cancel_session_runs(thread_id: str, session_ids: set[str] | None) -> set[str]:
+    """Interrupt the thread's live runs for these sessions (any Linear session when ``None``).
+
+    Returns the sessions whose runs were interrupted.
+    """
+    client = get_client()
+    cancelled: dict[str, str] = {}
+    for status in ("pending", "running"):
+        for run in await client.runs.list(thread_id, status=status, limit=100):
+            session_id = _run_session_id(run)
+            if session_id and (session_ids is None or session_id in session_ids):
+                cancelled[run["run_id"]] = session_id
+    if cancelled:
+        await client.runs.cancel_many(
+            thread_id=thread_id, run_ids=sorted(cancelled), action="interrupt"
+        )
+        await interrupt_transcript_turns(thread_id, sorted(cancelled))
+    return set(cancelled.values())
+
+
+def _run_session_id(run: Run) -> str | None:
+    kwargs = run.get("kwargs")
+    config = kwargs.get("config") if isinstance(kwargs, Mapping) else None
+    configurable = config.get("configurable") if isinstance(config, Mapping) else None
+    session = configurable.get("linear_session") if isinstance(configurable, Mapping) else None
+    session_id = session.get("id") if isinstance(session, Mapping) else None
+    return session_id if isinstance(session_id, str) and session_id else None

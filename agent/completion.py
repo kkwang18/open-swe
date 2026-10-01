@@ -24,7 +24,11 @@ from agent.config import ENV
 from agent.dispatch import FOLLOW_UP_PICKUP_KIND
 from agent.github.app import get_github_app_installation_token
 from agent.github.comments import post_github_comment
-from agent.integrations.linear.session import final_answer, post_final_response
+from agent.integrations.linear.session import (
+    final_answer,
+    post_final_response,
+    post_session_error,
+)
 from agent.invocation import resolve_invocation_id, with_invocation_id
 from agent.linear.notifications import post_linear_notification
 from agent.review.findings import REVIEWER_THREAD_KIND
@@ -185,7 +189,11 @@ async def _settle_failed_reviewer_check(thread_id: str, metadata: dict[str, Any]
 
 
 async def _post_failure_reply(
-    thread_id: str, metadata: dict[str, Any], status: str, reason_code: str | None = None
+    thread_id: str,
+    metadata: dict[str, Any],
+    status: str,
+    reason_code: str | None = None,
+    run_id: str | None = None,
 ) -> bool:
     """Post a failure reply to the run's originating channel. Best-effort."""
     source = metadata.get("source")
@@ -205,6 +213,10 @@ async def _post_failure_reply(
         return False
 
     if source == "linear":
+        if ctx.linear_session and ctx.linear_session.id:
+            return await post_session_error(
+                ctx.linear_session.id, run_id, _failure_text(status, reason_code=reason_code)
+            )
         if ctx.linear_issue and ctx.linear_issue.id:
             return await post_linear_notification(
                 ctx.linear_issue.id, _failure_text(status, reason_code=reason_code)
@@ -557,7 +569,7 @@ async def handle_run_completion(payload: dict[str, Any]) -> dict[str, str]:
         return {"status": "ignored", "reason": "failure reply already posted for run"}
 
     reason_code = _failure_reason_code(error, metadata, run_id)
-    posted = await _post_failure_reply(thread_id, metadata, status, reason_code)
+    posted = await _post_failure_reply(thread_id, metadata, status, reason_code, run_id)
     if not posted:
         return {"status": "ignored", "reason": "no reply posted"}
 

@@ -37,7 +37,8 @@ async def linear_webhook(  # noqa: PLR0911, PLR0912, PLR0915
     body = await request.body()
     # Only the legacy `@openswe` comment flow subscribes to Comments; the agent
     # app's deliveries (sessions, issue updates) go through the integration.
-    if request.headers.get("Linear-Event", "") != "Comment":
+    event_type = request.headers.get("Linear-Event", "")
+    if event_type and event_type != "Comment":
         return await accept_webhook(
             linear_integration, request, body, background_tasks, process_linear_event
         )

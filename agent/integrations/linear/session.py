@@ -50,3 +50,22 @@ async def post_final_response(session_id: str, run_id: str, thread_id: str, answ
         else:
             return True
     return False
+
+
+async def post_session_error(session_id: str, run_id: str | None, text: str) -> bool:
+    """End the session with an error; with the run id it shares the response's single slot."""
+    content: dict[str, JsonValue] = {"type": "error", "body": text}
+    try:
+        await post_activity(
+            session_id,
+            content,
+            activity_id=linear_activity_id("reply", run_id) if run_id else None,
+        )
+    except Exception:
+        logger.warning(
+            "Posting the Linear session error failed",
+            extra={"linear_session_id": session_id},
+            exc_info=True,
+        )
+        return False
+    return True

@@ -39,9 +39,15 @@ class _FakeThreads:
         return {"thread_id": thread_id, "metadata": {}, "status": "idle"}
 
 
+class _FakeRuns:
+    async def list(self, thread_id: str, *, status: str, limit: int) -> list[dict[str, object]]:
+        return []
+
+
 class _FakeClient:
     def __init__(self) -> None:
         self.threads = _FakeThreads()
+        self.runs = _FakeRuns()
 
 
 async def test_stop_before_dispatch_prevents_the_run(monkeypatch):
@@ -79,3 +85,41 @@ def test_acknowledgement_ids_are_stable_uuid4():
     first = linear_activity_id("ack", "delivery-1")
     assert first == linear_activity_id("ack", "delivery-1")
     assert uuid.UUID(first).version == 4
+
+
+async def test_stop_cancels_only_its_own_sessions_run(monkeypatch):
+    stop = _event("agent_session_prompted_stop")
+    assert isinstance(stop, SessionPrompted)
+    cancelled: list[str] = []
+
+    def run(run_id: str, session_id: str) -> dict[str, object]:
+        configurable = {"linear_session": {"id": session_id}}
+        return {"run_id": run_id, "kwargs": {"config": {"configurable": configurable}}}
+
+    class Runs:
+        async def list(self, thread_id: str, *, status: str, limit: int) -> list[dict[str, object]]:
+            if status != "running":
+                return []
+            return [run("run-mine", stop.session_id), run("run-other", "another-session")]
+
+        async def cancel_many(self, *, thread_id: str, run_ids: list[str], action: str) -> None:
+            cancelled.extend(run_ids)
+
+    client = _FakeClient()
+    client.runs = Runs()
+    responses: list[str] = []
+
+    async def post_activity(session_id, content, **_):
+        responses.append(session_id)
+
+    async def interrupt_transcript_turns(thread_id, run_ids):
+        return None
+
+    monkeypatch.setattr(worker, "get_client", lambda: client)
+    monkeypatch.setattr(worker, "post_activity", post_activity)
+    monkeypatch.setattr(worker, "interrupt_transcript_turns", interrupt_transcript_turns)
+
+    await worker.process_linear_event(stop)
+
+    assert cancelled == ["run-mine"]
+    assert responses == [stop.session_id]
