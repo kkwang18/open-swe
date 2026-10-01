@@ -1,0 +1,149 @@
+"""Linear as an Open SWE integration: agent sessions in, session activities out."""
+
+import logging
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar
+
+from pydantic import ValidationError
+
+from agent.config import ENV
+from agent.integrations.base import EventLogFields, Ignored, IntegrationName
+from agent.integrations.linear.events import (
+    AgentSessionPayload,
+    DelegationRemoved,
+    Envelope,
+    IssueUpdatePayload,
+    LinearEvent,
+    LinearIssue,
+    SessionCreated,
+    SessionPrompted,
+)
+from agent.webhooks.common import verify_linear_signature
+from agent.webhooks.event_log import EventRefs
+
+logger = logging.getLogger(__name__)
+
+# Linear signs `webhookTimestamp` at send time, retries included, so a replayed
+# body falls outside this window.
+SIGNATURE_WINDOW = timedelta(seconds=60)
+# Retries keep `createdAt`; only the 1-minute retry lands inside this.
+STALE_AFTER = timedelta(minutes=5)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+class LinearIntegration:
+    name: ClassVar[IntegrationName] = "linear"
+
+    def __init__(self, now: Callable[[], datetime] = _utcnow) -> None:
+        self._now = now
+
+    def verify(self, headers: Mapping[str, str], body: bytes) -> bool:
+        signature = headers.get("linear-signature", "")
+        if not verify_linear_signature(body, signature, ENV.LINEAR_WEBHOOK_SECRET.get()):
+            return False
+        try:
+            envelope = Envelope.model_validate_json(body)
+        except ValidationError:
+            return False
+        sent_at = datetime.fromtimestamp(envelope.webhook_timestamp / 1000, UTC)
+        return abs(self._now() - sent_at) <= SIGNATURE_WINDOW
+
+    def log_fields(self, headers: Mapping[str, str], body: bytes) -> EventLogFields:
+        return {
+            "event_type": headers.get("linear-event", ""),
+            "delivery_id": headers.get("linear-delivery", ""),
+            "refs": EventRefs.linear(body),
+        }
+
+    def parse(self, headers: Mapping[str, str], body: bytes) -> LinearEvent | Ignored:
+        delivery_id = headers.get("linear-delivery", "")
+        if not delivery_id:
+            return Ignored("no delivery id")
+        try:
+            event = self._event(delivery_id, body)
+        except ValidationError:
+            logger.warning("Unparseable Linear delivery", exc_info=True)
+            return Ignored("unparseable payload")
+        if isinstance(event, Ignored) or not self._is_stale(event):
+            return event
+        return Ignored("stale")
+
+    def event_key(self, event: LinearEvent) -> str:
+        return event.delivery_id
+
+    def _event(self, delivery_id: str, body: bytes) -> LinearEvent | Ignored:
+        envelope = Envelope.model_validate_json(body)
+        created_at = envelope.created_at
+        if envelope.type == "AgentSessionEvent" and created_at is not None:
+            return self._session_event(delivery_id, envelope.action, created_at, body)
+        if envelope.type == "Issue" and envelope.action == "update" and created_at is not None:
+            return self._delegation_removed(delivery_id, created_at, body)
+        return Ignored(f"{envelope.type} {envelope.action} is not handled")
+
+    def _session_event(
+        self, delivery_id: str, action: str, created_at: datetime, body: bytes
+    ) -> LinearEvent | Ignored:
+        payload = AgentSessionPayload.model_validate_json(body)
+        session = payload.agent_session
+        if action == "created":
+            if session.issue is None:
+                return Ignored("session has no issue")
+            return SessionCreated(
+                delivery_id=delivery_id,
+                created_at=created_at,
+                session_id=session.id,
+                issue=session.issue,
+                creator=session.creator,
+                comment_id=session.comment_id,
+                prompt_context=payload.prompt_context,
+            )
+        if action == "prompted" and payload.agent_activity is not None:
+            activity = payload.agent_activity
+            return SessionPrompted(
+                delivery_id=delivery_id,
+                created_at=created_at,
+                session_id=session.id,
+                issue=session.issue,
+                activity_id=activity.id,
+                body=activity.content.body,
+                author=activity.user,
+                signal=activity.signal,
+            )
+        return Ignored(f"agent session {action} is not handled")
+
+    def _delegation_removed(
+        self, delivery_id: str, created_at: datetime, body: bytes
+    ) -> DelegationRemoved | Ignored:
+        payload = IssueUpdatePayload.model_validate_json(body)
+        previous = payload.updated_from.get("delegateId")
+        if not isinstance(previous, str) or payload.data.delegate_id is not None:
+            return Ignored("not an undelegation")
+        return DelegationRemoved(
+            delivery_id=delivery_id,
+            created_at=created_at,
+            issue=LinearIssue.model_validate(payload.data.model_dump(by_alias=True)),
+            previous_delegate_id=previous,
+        )
+
+    def _is_stale(self, event: LinearEvent) -> bool:
+        # Stopping is always wanted, however late it arrives.
+        if isinstance(event, DelegationRemoved):
+            return False
+        if isinstance(event, SessionPrompted) and event.signal == "stop":
+            return False
+        return self._now() - event.created_at > STALE_AFTER
+
+
+linear_integration = LinearIntegration()
+
+
+async def process_linear_event(event: LinearEvent) -> None:
+    """Accepted events are only logged until the intake worker acts on them."""
+    logger.info(
+        "Accepted Linear event",
+        extra={"linear_event": type(event).__name__, "linear_delivery_id": event.delivery_id},
+    )

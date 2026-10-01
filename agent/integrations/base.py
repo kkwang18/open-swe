@@ -8,16 +8,17 @@ branching on ``source``.
 
 Hooks are grouped by where they run. The HTTP handler must answer within the
 provider's deadline, so its hooks do local work only. Everything that calls the
-provider or the database runs in the intake worker after the event is saved, or
-in the agent run itself.
+provider runs in the intake worker after the provider has its 200, or in the
+agent run itself.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, Protocol, TypedDict
 
 from agent.middleware.dynamic_tools import IntegrationGroup
 from agent.run_config import Repo
+from agent.webhooks.event_log import EventRefs
 
 IntegrationName = Literal["slack", "github", "linear"]
 
@@ -94,17 +95,20 @@ class PlanUpdate:
 RunStep = ToolCallStep | PlanUpdate
 
 
-class Integration[EventT, RefT](Protocol):
-    """A provider Open SWE takes requests from and answers through.
+class EventLogFields(TypedDict):
+    event_type: str
+    delivery_id: str
+    refs: EventRefs
 
-    ``EventT`` is the parsed webhook event. ``RefT`` is what the integration needs
-    to talk back to the place the request came from; it travels with the run.
-    """
+
+class WebhookIngress[EventT](Protocol):
+    """The HTTP handler's hooks: local work only, inside the provider's response deadline."""
 
     name: ClassVar[IntegrationName]
 
-    # HTTP handler: local work only, inside the provider's response deadline.
     def verify(self, headers: Mapping[str, str], body: bytes) -> bool: ...
+
+    def log_fields(self, headers: Mapping[str, str], body: bytes) -> EventLogFields: ...
 
     def parse(self, headers: Mapping[str, str], body: bytes) -> EventT | Ignored: ...
 
@@ -112,7 +116,15 @@ class Integration[EventT, RefT](Protocol):
         """Stable across provider retries of the same delivery; dedupes intake."""
         ...
 
-    # Intake worker: after the event is saved and the provider has its 200.
+
+class Integration[EventT, RefT](WebhookIngress[EventT], Protocol):
+    """A provider Open SWE takes requests from and answers through.
+
+    ``EventT`` is the parsed webhook event. ``RefT`` is what the integration needs
+    to talk back to the place the request came from; it travels with the run.
+    """
+
+    # Intake worker: after the provider has its 200.
     def thread_id(self, event: EventT) -> str: ...
 
     def source_ref(self, event: EventT) -> RefT: ...

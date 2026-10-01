@@ -62,7 +62,7 @@
   "appUserId": "00000000-0000-4000-8000-000000000001",
   "createdAt": "2026-10-01T21:02:36.678Z",
   "guidance": null,
-  "oauthClientId": "e3237f9096143eaf43a59662a33a7a2c",
+  "oauthClientId": "test-oauth-client-id",
   "organizationId": "00000000-0000-4000-8000-000000000009",
   "previousComments": [
     {

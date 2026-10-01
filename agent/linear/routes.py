@@ -4,6 +4,8 @@ import re
 
 from fastapi import APIRouter
 
+from agent.integrations.intake import accept_webhook
+from agent.integrations.linear.integration import linear_integration, process_linear_event
 from agent.linear import webhook as service
 from agent.users import User
 from agent.webhooks import common
@@ -32,6 +34,12 @@ async def linear_webhook(  # noqa: PLR0911, PLR0912, PLR0915
     """
     common.logger.info("Received Linear webhook")
     body = await request.body()
+    # Only the legacy `@openswe` comment flow subscribes to Comments; the agent
+    # app's deliveries (sessions, issue updates) go through the integration.
+    if request.headers.get("Linear-Event", "") != "Comment":
+        return await accept_webhook(
+            linear_integration, request, body, background_tasks, process_linear_event
+        )
 
     signature = request.headers.get("Linear-Signature", "")
     if not common.verify_linear_signature(body, signature, common.LINEAR_WEBHOOK_SECRET):

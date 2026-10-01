@@ -56,7 +56,7 @@
   "appUserId": "00000000-0000-4000-8000-000000000001",
   "createdAt": "2026-10-01T20:43:35.373Z",
   "guidance": null,
-  "oauthClientId": "e3237f9096143eaf43a59662a33a7a2c",
+  "oauthClientId": "test-oauth-client-id",
   "organizationId": "00000000-0000-4000-8000-000000000009",
   "previousComments": null,
   "promptContext": "<issue identifier=\"OSWE-6\">\n<title>1. Spike: Linear agent app, token and payloads</title>\n<description>\n**Scope**\nScratch OAuth app with `actor=app`; mint a `client_credentials` token; delegate an issue; capture real created/prompted events; check retry timestamps, guest status, client-supplied activity id, and the undelegation event (design checks 1-7).\n\n**Done when**\nEvery day-one check is answered; payloads saved as test fixtures.\n\nReferences: [Design](<https://example.com/doc>) \u00b7 [Work plan and success metrics](<https://example.com/doc>)\n</description>\n<team name=\"open-swe-linear-integration\"/>\n<project name=\"open-swe-linear-integration\"/>\n<issue-relations>\n<blocking>\n<issue-ref identifier=\"OSWE-8\" title=\"3. Linear app auth\"/>\n<issue-ref identifier=\"OSWE-17\" title=\"15. End-to-end verification\"/>\n</blocking>\n</issue-relations>\n</issue>",
