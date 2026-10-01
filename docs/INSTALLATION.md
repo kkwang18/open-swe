@@ -359,13 +359,21 @@ A workflow that names no `repo` works in its own repository. A machine caller re
 <details id="linear">
 <summary><strong>Linear</strong></summary>
 
-Open SWE listens for Linear comments that mention `@openswe`.
+Open SWE works as a Linear agent: delegate an issue to it or @mention it, and it acknowledges within seconds, shows its progress in the issue's agent session, and ends the session with its answer and pull request. Setting it up needs a Linear workspace admin.
 
-1. **Settings → API → Webhooks → New webhook**: label `Open SWE`, URL `<URL>/webhooks/linear`, a secret from `openssl rand -hex 32` saved as `LINEAR_WEBHOOK_SECRET`, and under **Data change events** only **Comments → Create**.
-2. Add a Linear MCP server named `linear` under **Workspaces → the workspace → MCP connections** and select the tools Open SWE may use. Include `save_comment` (or `create_comment` if offered) so the backend can post run, authentication, and sandbox failure notices even after the agent stops.
-3. Set a workspace default repository under **Open SWE Agent**. Add a `repo:owner/name` token or GitHub URL to a Linear comment when the issue belongs to another repository.
+1. **Settings → API → OAuth applications → New application.** Its name becomes the agent's handle, for example `openswe`. Then:
+   - **Callback URLs:** `<URL>/dashboard/api/integrations/linear/link/callback`, where people link their Linear account.
+   - **Client credentials:** on. Open SWE authenticates as the app with them; no install step is needed.
+   - **Webhooks:** on, URL `<URL>/webhooks/linear`, with **Agent session events**, **Permission changes**, and, under data change events, **Issues**. Without Agent session events Linear creates no sessions for the app ("Agent sessions are not enabled for this application"); Issues tells Open SWE when the agent is removed as an issue's delegate, which stops its work there.
+2. Set `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, and `LINEAR_WEBHOOK_SECRET`, the app webhook's signing secret, which Linear generates. So that a run that fails still ends its session with an error, also set `RUN_COMPLETE_WEBHOOK_SECRET` (`openssl rand -hex 32`) and `COMPLETION_WEBHOOK_URL=<URL>/webhooks/run-complete`; it must be an absolute https URL. Restart; the log shows `Linear agent app authenticated`.
+3. The first time someone asks, the session shows a button to link their Linear account: it signs them in to Open SWE and then to Linear, and their request continues once they are linked. Runs act as the linked person, with their own GitHub access; Linear guests are refused.
+4. The repository comes from a `repo:owner/name` in the request, the repository the issue's thread already uses, the person's default, or the workspace default. Failing those, Open SWE uses the workspace's repositories: one is used as is, and between several it takes Linear's suggestion when confident or asks in the session.
 
-**Verify:** comment `@openswe what files are in this repo?` on an issue, adding `repo:owner/name` when needed.
+The app's token reaches public teams only. Runs started from Linear can read Linear (issues, comments, projects, documents) and change the issue's status; they cannot post comments or make other changes.
+
+**Moving from the `@openswe` comment webhook:** delete the workspace webhook that sends **Comments → Create** and any MCP connection named `linear`. Otherwise one `@openswe` comment starts both a legacy run and a session, and the legacy run's comments come back into the session as prompts.
+
+**Verify:** delegate an issue in a public team to the app. "On it." appears within a few seconds, then the agent's actions, then its answer with any pull request linked on the session.
 
 </details>
 
@@ -421,7 +429,7 @@ Shared backend startup requires at least one entry in `ALLOWED_GITHUB_ORGS` or `
 ### Webhook not receiving events
 
 - The URL configured in GitHub, Slack, or Linear must be the deployment's URL; GitHub shows each delivery and its response under the App's **Advanced** tab. A new webhook or signing secret takes effect only after the deployment restarts with it; deliveries in between are rejected as `Invalid signature`, and Slack then needs **Retry** on its Request URL under **Event Subscriptions**.
-- Enable the right events: Issue comment and the pull request review events for GitHub, `app_mention` for Slack, Comments → Create for Linear.
+- Enable the right events: Issue comment and the pull request review events for GitHub, `app_mention` for Slack, Agent session events and Issues for Linear.
 - Webhook secrets are required: without `GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, or `LINEAR_WEBHOOK_SECRET`, every request to that endpoint is rejected with 401.
 
 ### Thread credential scope
@@ -495,7 +503,7 @@ User identity and membership checks still apply to public runs.
 ### Agent not responding to comments
 
 - GitHub: the comment must contain a configured handle (`@openswe` by default, case-insensitive), and the commenter must have signed in to the dashboard once; otherwise the log says `No email mapping for GitHub user`.
-- Linear: the comment must contain the handle; Slack: the bot must be in the channel and `@`-mentioned.
+- Linear: delegate the issue to the app or `@`-mention it, in a public team; a link button or an error in the agent session says what is missing. Slack: the bot must be in the channel and `@`-mentioned.
 - Check the server log for webhook processing errors.
 
 ### Token encryption errors
