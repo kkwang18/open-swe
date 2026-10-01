@@ -95,6 +95,9 @@ from agent.input_messages import (
     visible_dynamic_context_hashes,
 )
 from agent.integrations.linear.middleware import LinearSessionMiddleware
+from agent.integrations.linear.token import linear_app_configured
+from agent.integrations.linear.tools import GROUP_NAME as LINEAR_TOOL_GROUP
+from agent.integrations.linear.tools import linear_tool_group
 from agent.mcp import load_mcp_tools
 from agent.mcp.instance import instance_mcp_source
 from agent.mcp.user import user_mcp_source
@@ -1808,6 +1811,9 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         "MCPs": mcp_tools,
         "Notion": notion_tools,
     }
+    # Only runs a Linear session started get Linear's tools, acting as the app.
+    if cfg.linear_session is not None and cfg.linear_session.id and linear_app_configured():
+        integration_tool_groups[LINEAR_TOOL_GROUP] = linear_tool_group()
     if integration_tool_groups:
         candidate = DynamicToolMiddleware(
             integration_tool_groups,
