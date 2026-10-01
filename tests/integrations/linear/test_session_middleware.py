@@ -26,6 +26,11 @@ async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeyp
     monkeypatch.setattr(linear_middleware, "post_activity", post_activity)
     monkeypatch.setattr(linear_session, "post_activity", post_activity)
     monkeypatch.setattr(linear_middleware, "set_session_plan", set_session_plan)
+
+    async def add_session_link(session_id, label, url):
+        posted.append(("link", url))
+
+    monkeypatch.setattr(linear_middleware, "add_session_link", add_session_link)
     monkeypatch.setattr(
         linear_middleware,
         "get_config",
@@ -34,13 +39,19 @@ async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeyp
     middleware = linear_middleware.LinearSessionMiddleware("session-1")
 
     async def handler(request):
-        return ToolMessage(content="ok", tool_call_id=request.tool_call["id"])
+        content = "ok"
+        if request.tool_call["name"] == "open_pull_request":
+            content = (
+                '{"success": true, "url": "https://github.com/acme/web/pull/12", "number": 12}'
+            )
+        return ToolMessage(content=content, tool_call_id=request.tool_call["id"])
 
     await middleware.awrap_tool_call(_Request("execute", {"command": "pytest -q"}), handler)
     await middleware.awrap_tool_call(
         _Request("write_todos", {"todos": [{"content": "Fix", "status": "in_progress"}]}), handler
     )
     await middleware.awrap_tool_call(_Request("read_file", {"file_path": "README.md"}), handler)
+    await middleware.awrap_tool_call(_Request("open_pull_request", {"title": "Docs"}), handler)
     state = {
         "messages": [
             HumanMessage(content="add a sentence to the README"),
@@ -54,6 +65,8 @@ async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeyp
         ("action", "pytest -q"),
         ("plan", ["inProgress"]),
         ("action", "README.md"),
+        ("action", '{"title": "Docs"}'),
+        ("link", "https://github.com/acme/web/pull/12"),
         ("response", linear_activity_id("reply", "r-1")),
     ]
 

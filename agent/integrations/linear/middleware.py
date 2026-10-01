@@ -13,8 +13,9 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from pydantic import JsonValue
 
-from agent.integrations.linear.client import post_activity, set_session_plan
+from agent.integrations.linear.client import add_session_link, post_activity, set_session_plan
 from agent.integrations.linear.session import final_answer, post_final_response
+from agent.middleware.message_content import content_to_text
 from agent.middleware.trace import OpenSWEMiddleware
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,22 @@ def _plan(args: Mapping[str, object]) -> list[JsonValue]:
             status = _PLAN_STATUSES.get(str(todo.get("status")), "pending")
             plan.append({"content": todo["content"], "status": status})
     return plan
+
+
+def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str] | None:
+    """``(label, url)`` of the PR an ``open_pull_request`` call opened or found."""
+    if not isinstance(result, ToolMessage):
+        return None
+    try:
+        payload = json.loads(content_to_text(result.content))
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        return None
+    url, number = payload.get("url"), payload.get("number")
+    if not isinstance(url, str) or not url:
+        return None
+    return (f"Pull request #{number}" if isinstance(number, int) else "Pull request"), url
 
 
 def _run_ids() -> tuple[str, str] | None:
@@ -104,7 +121,11 @@ class LinearSessionMiddleware(OpenSWEMiddleware):
                 "parameter": _parameter(args),
             }
             self._enqueue(lambda: post_activity(self._session_id, content))
-        return await handler(request)
+        result = await handler(request)
+        if name == "open_pull_request" and (pr := _opened_pull_request(result)) is not None:
+            label, url = pr
+            self._enqueue(lambda: add_session_link(self._session_id, label, url))
+        return result
 
     async def aafter_agent(self, state: AgentState, runtime: Runtime) -> None:
         del runtime

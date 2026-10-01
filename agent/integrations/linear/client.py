@@ -214,3 +214,11 @@ async def suggest_repositories(
         data.issue_repository_suggestions.suggestions, key=lambda s: s.confidence, reverse=True
     )
     return [(s.repository_full_name, s.confidence) for s in ranked]
+
+
+async def add_session_link(session_id: str, label: str, url: str) -> None:
+    """Add a link to the session, keeping the ones already there."""
+    await linear_graphql(
+        _SESSION_UPDATE,
+        {"id": session_id, "input": {"addedExternalUrls": [{"label": label, "url": url}]}},
+    )
