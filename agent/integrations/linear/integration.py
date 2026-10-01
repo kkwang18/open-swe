@@ -19,6 +19,7 @@ from agent.integrations.linear.events import (
     LinearIssue,
     SessionCreated,
     SessionPrompted,
+    SessionWithoutIssue,
 )
 from agent.webhooks.common import verify_linear_signature
 from agent.webhooks.event_log import EventRefs
@@ -98,9 +99,16 @@ class LinearIntegration:
     ) -> LinearEvent | Ignored:
         payload = AgentSessionPayload.model_validate_json(body)
         session = payload.agent_session
-        if action == "created":
-            if session.issue is None:
-                return Ignored("session has no issue")
+        activity = payload.agent_activity
+        if action == "prompted" and activity is None:
+            return Ignored("agent session prompted without an activity")
+        # Stop on an issue-less session still gets "Stopped." from the prompt path.
+        is_stop = activity is not None and activity.signal == "stop"
+        if session.issue is None and action in ("created", "prompted") and not is_stop:
+            return SessionWithoutIssue(
+                delivery_id=delivery_id, created_at=created_at, session_id=session.id
+            )
+        if action == "created" and session.issue is not None:
             return SessionCreated(
                 delivery_id=delivery_id,
                 created_at=created_at,
@@ -113,8 +121,7 @@ class LinearIntegration:
                 comment_body=session.comment.body if session.comment else "",
                 prompt_context=payload.prompt_context,
             )
-        if action == "prompted" and payload.agent_activity is not None:
-            activity = payload.agent_activity
+        if action == "prompted" and activity is not None:
             return SessionPrompted(
                 delivery_id=delivery_id,
                 created_at=created_at,

@@ -61,6 +61,15 @@ class SessionPrompted:
 
 
 @dataclass(frozen=True)
+class SessionWithoutIssue:
+    """A new session or a message in one that isn't on an issue, such as a document mention."""
+
+    delivery_id: str
+    created_at: datetime
+    session_id: str
+
+
+@dataclass(frozen=True)
 class DelegationRemoved:
     """An issue's delegate was cleared; Linear leaves the app's open sessions running."""
 
@@ -70,7 +79,7 @@ class DelegationRemoved:
     previous_delegate_id: str
 
 
-LinearEvent = SessionCreated | SessionPrompted | DelegationRemoved
+LinearEvent = SessionCreated | SessionPrompted | SessionWithoutIssue | DelegationRemoved
 
 
 class Envelope(BaseModel):

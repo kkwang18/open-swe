@@ -37,6 +37,7 @@ from agent.integrations.linear.events import (
     LinearUser,
     SessionCreated,
     SessionPrompted,
+    SessionWithoutIssue,
 )
 from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef, SourceContext
@@ -52,6 +53,9 @@ logger = logging.getLogger(__name__)
 STOP_MARKER_TTL_MINUTES = 60
 # Thread metadata holding a question the requester has yet to answer.
 PENDING_QUESTION_KEY = "linear_pending_question"
+ISSUE_ONLY_REPLY = (
+    "I can only work on Linear issues for now. Mention me on an issue, or delegate one to me."
+)
 
 
 class _PendingOption(BaseModel):
@@ -88,6 +92,8 @@ async def process_linear_event(event: LinearEvent) -> None:
                 await _start_session(event)
             case SessionPrompted():
                 await _continue_session(event)
+            case SessionWithoutIssue():
+                await _reply_issue_only(event.session_id, event.delivery_id)
             case DelegationRemoved():
                 await _stop_after_undelegation(event)
     except Exception:
@@ -127,7 +133,7 @@ async def _continue_session(event: SessionPrompted) -> None:
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
         return
     if event.issue is None:
-        logger.warning("Linear prompt has no issue", extra={"linear_session_id": event.session_id})
+        await _reply_issue_only(event.session_id, event.delivery_id)
         return
     thread_id = linear_issue_thread_id(event.issue.id)
     await _acknowledge(event.session_id, event.delivery_id, thread_id)
@@ -168,6 +174,14 @@ async def _continue_session(event: SessionPrompted) -> None:
         pending.request,
         pending.comment_id,
         chosen_repo=repo,
+    )
+
+
+async def _reply_issue_only(session_id: str, delivery_id: str) -> None:
+    await post_activity(
+        session_id,
+        {"type": "response", "body": ISSUE_ONLY_REPLY},
+        activity_id=linear_activity_id("issue-only", delivery_id),
     )
 
 

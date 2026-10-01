@@ -1,0 +1,69 @@
+{
+  "action": "created",
+  "agentSession": {
+    "appUserId": "00000000-0000-4000-8000-000000000001",
+    "archivedAt": null,
+    "comment": {
+      "body": "@openswe summarize this doc",
+      "documentContentId": "00000000-0000-4000-8000-000000000021",
+      "id": "00000000-0000-4000-8000-000000000022",
+      "issueId": null,
+      "userId": "00000000-0000-4000-8000-000000000004"
+    },
+    "commentId": "00000000-0000-4000-8000-000000000022",
+    "context": [],
+    "createdAt": "2026-10-01T21:02:36.220Z",
+    "creator": {
+      "avatarUrl": "https://example.com/avatar.png",
+      "email": "test.user@example.com",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Test User",
+      "url": "https://linear.app/acme/profiles/test-user"
+    },
+    "creatorId": "00000000-0000-4000-8000-000000000004",
+    "dismissedAt": null,
+    "dismissedById": null,
+    "endedAt": null,
+    "externalLink": null,
+    "externalUrls": [],
+    "id": "00000000-0000-4000-8000-000000000023",
+    "issue": null,
+    "issueId": null,
+    "modelSelection": null,
+    "organizationId": "00000000-0000-4000-8000-000000000009",
+    "plan": null,
+    "pullRequestId": null,
+    "slugId": "d0c0000000001",
+    "sourceCommentId": null,
+    "sourceMetadata": {
+      "agentSessionMetadata": {
+        "sourceCommentId": "00000000-0000-4000-8000-000000000022"
+      },
+      "type": "comment"
+    },
+    "startedAt": null,
+    "status": "pending",
+    "summary": null,
+    "updatedAt": "2026-10-01T21:02:36.220Z",
+    "url": "https://linear.app/acme/agent-session/00000000-0000-4000-8000-000000000023",
+    "workspaceDiff": null
+  },
+  "appUserId": "00000000-0000-4000-8000-000000000001",
+  "createdAt": "2026-10-01T21:02:36.678Z",
+  "guidance": null,
+  "oauthClientId": "test-oauth-client-id",
+  "organizationId": "00000000-0000-4000-8000-000000000009",
+  "previousComments": [
+    {
+      "body": "@openswe summarize this doc",
+      "documentContentId": "00000000-0000-4000-8000-000000000021",
+      "id": "00000000-0000-4000-8000-000000000022",
+      "issueId": null,
+      "userId": "00000000-0000-4000-8000-000000000004"
+    }
+  ],
+  "promptContext": "<primary-directive-thread comment-id=\"00000000-0000-4000-8000-000000000022\"><comment author=\"Test User\" created-at=\"2026-10-01T21:02:35.966Z\"><user id=\"00000000-0000-4000-8000-000000000001\" notify>openswe</user> summarize this doc</comment></primary-directive-thread>",
+  "type": "AgentSessionEvent",
+  "webhookId": "00000000-0000-4000-8000-000000000010",
+  "webhookTimestamp": 1790888556713
+}

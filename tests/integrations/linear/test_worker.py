@@ -9,16 +9,19 @@ from langgraph_sdk.errors import ConflictError, NotFoundError
 
 from agent.integrations.linear import worker
 from agent.integrations.linear.client import linear_activity_id
-from agent.integrations.linear.events import SessionCreated, SessionPrompted
+from agent.integrations.linear.events import SessionCreated, SessionPrompted, SessionWithoutIssue
 from agent.integrations.linear.integration import LinearIntegration
 
 FIXTURES = Path(__file__).with_name("fixtures")
 
 
+def _parse(raw: dict[str, object], name: str):
+    now = datetime.fromisoformat(str(raw["createdAt"]))
+    return LinearIntegration(now=lambda: now)._event(f"delivery-{name}", json.dumps(raw).encode())
+
+
 def _event(name: str) -> SessionCreated | SessionPrompted:
-    raw = json.loads((FIXTURES / f"{name}.json").read_text())
-    now = datetime.fromisoformat(raw["createdAt"])
-    event = LinearIntegration(now=lambda: now)._event(f"delivery-{name}", json.dumps(raw).encode())
+    event = _parse(json.loads((FIXTURES / f"{name}.json").read_text()), name)
     assert isinstance(event, SessionCreated | SessionPrompted)
     return event
 
@@ -159,3 +162,36 @@ async def test_link_by_someone_else_does_not_resume_the_request(monkeypatch):
 
     await worker.resume_after_link(created.session_id, created.issue.id, "the-requester")
     assert resumed == [created.session_id]
+
+
+async def test_session_without_issue_is_answered_once_and_starts_no_run(monkeypatch):
+    client = _FakeClient()
+    posted: list[tuple[str, dict[str, object]]] = []
+    dispatched: list[str] = []
+
+    async def post_activity(session_id, content, **_):
+        posted.append((session_id, content))
+
+    async def process_linear_issue(issue_data, repo, *, linear_session, github_login):
+        dispatched.append(linear_session.id)
+
+    monkeypatch.setattr(worker, "get_client", lambda: client)
+    monkeypatch.setattr(worker, "post_activity", post_activity)
+    monkeypatch.setattr(worker, "process_linear_issue", process_linear_issue)
+
+    created = _parse(
+        json.loads((FIXTURES / "agent_session_created_document.json").read_text()), "document"
+    )
+    prompted_raw = json.loads((FIXTURES / "agent_session_prompted.json").read_text())
+    prompted_raw["agentSession"]["issue"] = None
+    prompted = _parse(prompted_raw, "document-reply")
+    assert isinstance(created, SessionWithoutIssue)
+    assert isinstance(prompted, SessionWithoutIssue)
+
+    await worker.process_linear_event(created)
+    await worker.process_linear_event(prompted)
+
+    reply = {"type": "response", "body": worker.ISSUE_ONLY_REPLY}
+    assert posted == [(created.session_id, reply), (prompted.session_id, reply)]
+    assert dispatched == []
+    assert client.threads.ids == set()
