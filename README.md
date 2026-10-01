@@ -81,3 +81,5 @@ Sandboxes have powerful tools and may have network access. Use least-privilege c
 ## License
 
 Open SWE is licensed under the [MIT License](LICENSE).
+
+Linear sessions are supported.
