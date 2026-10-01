@@ -94,6 +94,7 @@ from agent.input_messages import (
     person_introduction,
     visible_dynamic_context_hashes,
 )
+from agent.integrations.linear.middleware import LinearSessionMiddleware
 from agent.mcp import load_mcp_tools
 from agent.mcp.instance import instance_mcp_source
 from agent.mcp.user import user_mcp_source
@@ -1316,6 +1317,7 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 slack_ask=_slack_ask_mode(cfg),
                 slack_by_the_way=_slack_ask_mode(cfg) and bool(cfg.slack_by_the_way_thread_ts),
                 slack_breakout=cfg.slack_breakout is True,
+                linear_session=cfg.linear_session is not None and bool(cfg.linear_session.id),
                 sandbox_file_downloads=_sandbox_file_downloads_enabled(cfg),
                 continued_from_collaborative=bool(cfg.continued_from_thread_id),
                 local_checkout=bridged,
@@ -2048,6 +2050,11 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
                     *(
                         [RequireCliResultMiddleware(_registered_tool_name(cli_result))]
                         if cli_result_required
+                        else []
+                    ),
+                    *(
+                        [LinearSessionMiddleware(cfg.linear_session.id)]
+                        if cfg.linear_session is not None and cfg.linear_session.id
                         else []
                     ),
                     notify_step_limit_reached,

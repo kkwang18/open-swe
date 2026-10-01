@@ -1,5 +1,7 @@
 """Linear GraphQL calls made as the agent app."""
 
+import hashlib
+import uuid
 from collections.abc import Mapping
 
 import httpx
@@ -109,3 +111,17 @@ async def set_session_link(session_id: str, label: str, url: str) -> None:
         _SESSION_UPDATE,
         {"id": session_id, "input": {"externalUrls": [{"label": label, "url": url}]}},
     )
+
+
+def linear_activity_id(kind: str, key: str) -> str:
+    """A stable activity id, so a retried post is rejected as a duplicate instead of repeated.
+
+    Shaped as UUID v4 because Linear rejects activity ids of any other version.
+    """
+    digest = hashlib.sha256(f"open-swe:linear-{kind}:{key}".encode()).digest()
+    return str(uuid.UUID(bytes=digest[:16], version=4))
+
+
+async def set_session_plan(session_id: str, plan: list[JsonValue]) -> None:
+    """Replace the session's plan; Linear has no partial update for it."""
+    await linear_graphql(_SESSION_UPDATE, {"id": session_id, "input": {"plan": plan}})

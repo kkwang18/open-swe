@@ -7,6 +7,7 @@ import httpx
 from langgraph_sdk.errors import ConflictError, NotFoundError
 
 from agent.integrations.linear import worker
+from agent.integrations.linear.client import linear_activity_id
 from agent.integrations.linear.events import SessionCreated, SessionPrompted
 from agent.integrations.linear.integration import LinearIntegration
 
@@ -75,6 +76,6 @@ async def test_stop_before_dispatch_prevents_the_run(monkeypatch):
 
 
 def test_acknowledgement_ids_are_stable_uuid4():
-    first = worker._derived_id("ack", "delivery-1")
-    assert first == worker._derived_id("ack", "delivery-1")
+    first = linear_activity_id("ack", "delivery-1")
+    assert first == linear_activity_id("ack", "delivery-1")
     assert uuid.UUID(first).version == 4

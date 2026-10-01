@@ -24,6 +24,7 @@ from agent.config import ENV
 from agent.dispatch import FOLLOW_UP_PICKUP_KIND
 from agent.github.app import get_github_app_installation_token
 from agent.github.comments import post_github_comment
+from agent.integrations.linear.session import final_answer, post_final_response
 from agent.invocation import resolve_invocation_id, with_invocation_id
 from agent.linear.notifications import post_linear_notification
 from agent.review.findings import REVIEWER_THREAD_KIND
@@ -328,6 +329,23 @@ async def _settle_code_channel_session(
     await set_session_status(slack_thread.channel_id, "active")
 
 
+async def _settle_linear_session(
+    thread: object, thread_id: str, run_id: str, metadata: dict[str, Any]
+) -> None:
+    """Close the run's Linear session if the run itself could not; a repeat is a no-op."""
+    session = SourceContext.from_metadata(metadata).linear_session
+    if session is None or not session.id:
+        return
+    values = thread.get("values") if isinstance(thread, dict) else None
+    raw_messages = values.get("messages") if isinstance(values, dict) else None
+    try:
+        messages = convert_to_messages(raw_messages or [])
+    except _MESSAGE_CONVERSION_ERRORS:
+        logger.warning("run-complete: unreadable messages for Linear reply", exc_info=True)
+        messages = []
+    await post_final_response(session.id, run_id, thread_id, final_answer(messages))
+
+
 async def _handle_successful_run(
     thread_id: str, run_id: str | None, payload: dict[str, Any]
 ) -> dict[str, str]:
@@ -348,6 +366,7 @@ async def _handle_successful_run(
         return await turns.handle_run_completion(thread_id, run_id, "success")
     if metadata.get("kind") == REVIEWER_THREAD_KIND:
         return {"status": "ignored", "reason": "not an agent Slack run"}
+    await _settle_linear_session(thread, thread_id, run_id, metadata)
     await _settle_code_channel_session(client, thread_id, metadata)
     await sync_slack_background_status(client, thread_id)
     payload_metadata = payload.get("metadata")

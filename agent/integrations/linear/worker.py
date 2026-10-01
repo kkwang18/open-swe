@@ -4,7 +4,6 @@ Every session is acknowledged before anything slow runs, because Linear marks a
 session unresponsive when no activity arrives within ten seconds.
 """
 
-import hashlib
 import logging
 import uuid
 from collections.abc import Mapping
@@ -13,7 +12,7 @@ from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
 from langgraph_sdk.schema import Thread
 
-from agent.integrations.linear.client import post_activity, set_session_link
+from agent.integrations.linear.client import linear_activity_id, post_activity, set_session_link
 from agent.integrations.linear.events import (
     DelegationRemoved,
     LinearEvent,
@@ -45,11 +44,8 @@ NO_REPO = (
 )
 
 
-def _derived_id(kind: str, key: str) -> str:
-    # Deterministic so a retry reuses it, and shaped as UUID v4 because Linear
-    # rejects activity ids of any other version.
-    digest = hashlib.sha256(f"open-swe:linear-{kind}:{key}".encode()).digest()
-    return str(uuid.UUID(bytes=digest[:16], version=4))
+def _stop_marker_id(session_id: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"open-swe:linear-stop:{session_id}"))
 
 
 async def process_linear_event(event: LinearEvent) -> None:
@@ -112,7 +108,7 @@ async def _acknowledge(session_id: str, delivery_id: str, thread_id: str) -> Non
     await post_activity(
         session_id,
         {"type": "thought", "body": "On it."},
-        activity_id=_derived_id("ack", delivery_id),
+        activity_id=linear_activity_id("ack", delivery_id),
         ephemeral=True,
     )
     if url := dashboard_thread_url(thread_id):
@@ -205,7 +201,7 @@ async def _close_superseded_session(thread: Thread | None, session_id: str) -> N
 async def _mark_stopped(session_id: str) -> None:
     try:
         await create_lock_thread(
-            get_client(), _derived_id("stop", session_id), ttl_minutes=STOP_MARKER_TTL_MINUTES
+            get_client(), _stop_marker_id(session_id), ttl_minutes=STOP_MARKER_TTL_MINUTES
         )
     except ConflictError:
         return
@@ -213,7 +209,7 @@ async def _mark_stopped(session_id: str) -> None:
 
 async def _is_stopped(session_id: str) -> bool:
     try:
-        await get_client().threads.get(_derived_id("stop", session_id))
+        await get_client().threads.get(_stop_marker_id(session_id))
     except Exception as exc:
         if common.is_not_found_error(exc):
             return False

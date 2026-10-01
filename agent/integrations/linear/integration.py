@@ -1,6 +1,7 @@
 """Linear as an Open SWE integration: agent sessions in, session activities out."""
 
 import logging
+import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 SIGNATURE_WINDOW = timedelta(seconds=60)
 # Retries keep `createdAt`; only the 1-minute retry lands inside this.
 STALE_AFTER = timedelta(minutes=5)
+
+
+# Linear sends an @mention inside a session message as `<user id="…" notify>name</user>`.
+_MENTION_MARKUP = re.compile(r"<user\b[^>]*>([^<]*)</user>")
+
+
+def _plain_mentions(body: str) -> str:
+    return _MENTION_MARKUP.sub(r"@\1", body)
 
 
 def _utcnow() -> datetime:
@@ -112,7 +121,7 @@ class LinearIntegration:
                 session_id=session.id,
                 issue=session.issue,
                 activity_id=activity.id,
-                body=activity.content.body,
+                body=_plain_mentions(activity.content.body),
                 author=activity.user,
                 signal=activity.signal,
             )
