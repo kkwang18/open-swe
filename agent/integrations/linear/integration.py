@@ -98,7 +98,10 @@ class LinearIntegration:
                 session_id=session.id,
                 issue=session.issue,
                 creator=session.creator,
+                from_mention=session.source_metadata is not None
+                and session.source_metadata.type == "comment",
                 comment_id=session.comment_id,
+                comment_body=session.comment.body if session.comment else "",
                 prompt_context=payload.prompt_context,
             )
         if action == "prompted" and payload.agent_activity is not None:
@@ -139,11 +142,3 @@ class LinearIntegration:
 
 
 linear_integration = LinearIntegration()
-
-
-async def process_linear_event(event: LinearEvent) -> None:
-    """Accepted events are only logged until the intake worker acts on them."""
-    logger.info(
-        "Accepted Linear event",
-        extra={"linear_event": type(event).__name__, "linear_delivery_id": event.delivery_id},
-    )

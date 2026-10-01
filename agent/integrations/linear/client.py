@@ -66,3 +66,46 @@ async def app_user_id() -> str:
         data = _ViewerData.model_validate(await linear_graphql("query { viewer { id } }"))
         _app_user_id = data.viewer.id
     return _app_user_id
+
+
+_ACTIVITY_CREATE = """
+mutation AgentActivityCreate($input: AgentActivityCreateInput!) {
+  agentActivityCreate(input: $input) { success }
+}
+"""
+
+_SESSION_UPDATE = """
+mutation AgentSessionUpdate($id: String!, $input: AgentSessionUpdateInput!) {
+  agentSessionUpdate(id: $id, input: $input) { success }
+}
+"""
+
+
+async def post_activity(
+    session_id: str,
+    content: dict[str, JsonValue],
+    *,
+    activity_id: str | None = None,
+    ephemeral: bool = False,
+) -> None:
+    """Post to a session. With ``activity_id``, a repeat is a no-op: Linear rejects the duplicate."""
+    activity_input: dict[str, JsonValue] = {
+        "agentSessionId": session_id,
+        "content": content,
+        "ephemeral": ephemeral,
+    }
+    if activity_id:
+        activity_input["id"] = activity_id
+    try:
+        await linear_graphql(_ACTIVITY_CREATE, {"input": activity_input})
+    except LinearGraphQLError as exc:
+        if activity_id and any("conflict on insert" in error.message for error in exc.errors):
+            return
+        raise
+
+
+async def set_session_link(session_id: str, label: str, url: str) -> None:
+    await linear_graphql(
+        _SESSION_UPDATE,
+        {"id": session_id, "input": {"externalUrls": [{"label": label, "url": url}]}},
+    )

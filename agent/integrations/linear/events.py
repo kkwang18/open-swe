@@ -23,6 +23,7 @@ class LinearIssue(BaseModel):
     id: str
     identifier: str
     title: str = ""
+    description: str = ""
     url: str = ""
     team_id: str = Field("", alias="teamId")
 
@@ -37,7 +38,11 @@ class SessionCreated:
     issue: LinearIssue
     # Unset when an automation, such as a triage rule, started the session.
     creator: LinearUser | None
+    # A mention carries the request in its comment; a delegation's comment is
+    # Linear's own placeholder, so the issue itself is the request.
+    from_mention: bool
     comment_id: str | None
+    comment_body: str
     prompt_context: str
 
 
@@ -75,11 +80,21 @@ class Envelope(BaseModel):
     webhook_timestamp: int = Field(alias="webhookTimestamp")
 
 
+class _Comment(BaseModel):
+    body: str = ""
+
+
+class _SourceMetadata(BaseModel):
+    type: str = ""
+
+
 class _AgentSession(BaseModel):
     id: str
     issue: LinearIssue | None = None
     creator: LinearUser | None = None
     comment_id: str | None = Field(None, alias="commentId")
+    comment: _Comment | None = None
+    source_metadata: _SourceMetadata | None = Field(None, alias="sourceMetadata")
 
 
 class _ActivityContent(BaseModel):

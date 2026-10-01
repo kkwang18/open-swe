@@ -5,7 +5,8 @@ import re
 from fastapi import APIRouter
 
 from agent.integrations.intake import accept_webhook
-from agent.integrations.linear.integration import linear_integration, process_linear_event
+from agent.integrations.linear.integration import linear_integration
+from agent.integrations.linear.worker import process_linear_event
 from agent.linear import webhook as service
 from agent.users import User
 from agent.webhooks import common
