@@ -295,6 +295,10 @@ ENV.var(
 )
 ENV.var("SLACK_APP_ID", "Slack app id (A...) whose event deliveries Incidents accepts.")
 ENV.var("LINEAR_WEBHOOK_SECRET", "HMAC secret for Linear webhook deliveries.", secret=True)
+ENV.var(
+    "LINEAR_CLIENT_ID", "Linear agent app client id; its client-credentials token acts as the app."
+)
+ENV.var("LINEAR_CLIENT_SECRET", "Linear agent app client secret.", secret=True)
 
 # --- Dashboard ------------------------------------------------------------------------------
 ENV.var(
