@@ -7,6 +7,7 @@ from collections.abc import Mapping
 import httpx
 from pydantic import BaseModel, Field, JsonValue, ValidationError
 
+from agent.integrations.linear.events import LinearUser
 from agent.integrations.linear.token import linear_app_auth
 
 GRAPHQL_URL = "https://api.linear.app/graphql"
@@ -89,6 +90,8 @@ async def post_activity(
     *,
     activity_id: str | None = None,
     ephemeral: bool = False,
+    signal: str | None = None,
+    signal_metadata: dict[str, JsonValue] | None = None,
 ) -> None:
     """Post to a session. With ``activity_id``, a repeat is a no-op: Linear rejects the duplicate."""
     activity_input: dict[str, JsonValue] = {
@@ -98,6 +101,10 @@ async def post_activity(
     }
     if activity_id:
         activity_input["id"] = activity_id
+    if signal:
+        activity_input["signal"] = signal
+    if signal_metadata is not None:
+        activity_input["signalMetadata"] = signal_metadata
     try:
         await linear_graphql(_ACTIVITY_CREATE, {"input": activity_input})
     except LinearGraphQLError as exc:
@@ -125,3 +132,85 @@ def linear_activity_id(kind: str, key: str) -> str:
 async def set_session_plan(session_id: str, plan: list[JsonValue]) -> None:
     """Replace the session's plan; Linear has no partial update for it."""
     await linear_graphql(_SESSION_UPDATE, {"id": session_id, "input": {"plan": plan}})
+
+
+class _LinearUserData(BaseModel):
+    id: str
+    name: str = ""
+    email: str = ""
+    guest: bool = False
+
+
+class _IssueCreator(BaseModel):
+    creator: _LinearUserData | None = None
+
+
+class _IssueCreatorData(BaseModel):
+    issue: _IssueCreator
+
+
+async def issue_creator(issue_id: str) -> LinearUser | None:
+    """The issue's creator, who stands behind sessions an automation started."""
+    data = _IssueCreatorData.model_validate(
+        await linear_graphql(
+            "query($id: String!) { issue(id: $id) { creator { id name email } } }",
+            {"id": issue_id},
+        )
+    )
+    creator = data.issue.creator
+    return LinearUser(id=creator.id, name=creator.name, email=creator.email) if creator else None
+
+
+class _UserData(BaseModel):
+    user: _LinearUserData
+
+
+async def is_guest(user_id: str) -> bool:
+    data = _UserData.model_validate(
+        await linear_graphql(
+            "query($id: String!) { user(id: $id) { id guest } }",
+            {"id": user_id},
+        )
+    )
+    return data.user.guest
+
+
+class _Suggestion(BaseModel):
+    repository_full_name: str = Field(alias="repositoryFullName")
+    confidence: float
+
+
+class _Suggestions(BaseModel):
+    suggestions: list[_Suggestion]
+
+
+class _SuggestionsData(BaseModel):
+    issue_repository_suggestions: _Suggestions = Field(alias="issueRepositorySuggestions")
+
+
+_SUGGESTIONS = """
+query Suggest($issueId: String!, $sessionId: String, $candidates: [CandidateRepository!]!) {
+  issueRepositorySuggestions(
+    issueId: $issueId, agentSessionId: $sessionId, candidateRepositories: $candidates
+  ) { suggestions { repositoryFullName confidence } }
+}
+"""
+
+
+async def suggest_repositories(
+    issue_id: str, session_id: str, candidates: list[str]
+) -> list[tuple[str, float]]:
+    """Linear's ranking of ``owner/name`` candidates for the issue, best first."""
+    candidate_input: list[JsonValue] = [
+        {"hostname": "github.com", "repositoryFullName": full_name} for full_name in candidates
+    ]
+    data = _SuggestionsData.model_validate(
+        await linear_graphql(
+            _SUGGESTIONS,
+            {"issueId": issue_id, "sessionId": session_id, "candidates": candidate_input},
+        )
+    )
+    ranked = sorted(
+        data.issue_repository_suggestions.suggestions, key=lambda s: s.confidence, reverse=True
+    )
+    return [(s.repository_full_name, s.confidence) for s in ranked]

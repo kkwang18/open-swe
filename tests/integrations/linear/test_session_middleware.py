@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent.integrations.linear import middleware as linear_middleware
@@ -55,3 +56,16 @@ async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeyp
         ("action", "README.md"),
         ("response", linear_activity_id("reply", "r-1")),
     ]
+
+
+@pytest.mark.parametrize(
+    ("answer", "asks"),
+    [
+        ("Which line should change? Quote it. I won't edit anything until you reply.", True),
+        ("Done.\n\nWant me to add tests too?", True),
+        ("Should I update the docs?\n\nOpened PR #3.", False),
+        ("Opened https://github.com/acme/web/pull/2?tab=files for review.", False),
+    ],
+)
+def test_a_question_in_the_last_paragraph_awaits_the_person(answer, asks):
+    assert linear_session._ends_with_question(answer) is asks

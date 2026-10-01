@@ -6,12 +6,23 @@ session unresponsive when no activity arrives within ten seconds.
 
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
 from langgraph_sdk.schema import Run, Thread
+from pydantic import BaseModel, JsonValue, ValidationError
 
+from agent.integrations.base import Denied, PendingQuestion, SelectOption
+from agent.integrations.linear.access import (
+    RepoConfig,
+    check_repo,
+    choose_repo,
+    interpret_answer,
+    repo_from_choice,
+    requester,
+    resolve_actor,
+)
 from agent.integrations.linear.client import (
     app_user_id,
     linear_activity_id,
@@ -31,7 +42,6 @@ from agent.source_context import LinearSessionRef, SourceContext
 from agent.thread_ids import linear_issue_thread_id
 from agent.threads.creation import create_lock_thread
 from agent.threads.handlers import interrupt_transcript_turns
-from agent.users import User
 from agent.utils.dashboard_links import dashboard_thread_url
 from agent.webhooks import common
 
@@ -39,15 +49,25 @@ logger = logging.getLogger(__name__)
 
 # Long enough to outlast the dispatch it guards; a Stop only matters before then.
 STOP_MARKER_TTL_MINUTES = 60
+# Thread metadata holding a question the requester has yet to answer.
+PENDING_QUESTION_KEY = "linear_pending_question"
 
-NO_ACCOUNT = (
-    "I couldn't match your Linear account to an Open SWE user. Sign in to Open SWE "
-    "with the email you use in Linear, then mention me again."
-)
-NO_REPO = (
-    "I don't know which repository to work in. Add `repo:owner/name` to your message, "
-    "or set a default repository in Open SWE."
-)
+
+class _PendingOption(BaseModel):
+    value: str
+    label: str
+
+
+class _PendingQuestion(BaseModel):
+    session_id: str
+    requester_id: str
+    prompt: str
+    request: str
+    comment_id: str | None = None
+    options: list[_PendingOption]
+
+    def options_as_choices(self) -> tuple[SelectOption, ...]:
+        return tuple(SelectOption(value=o.value, label=o.label) for o in self.options)
 
 
 def _stop_marker_id(session_id: str) -> str:
@@ -89,9 +109,7 @@ async def _start_session(event: SessionCreated) -> None:
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
         return
     request = event.comment_body if event.from_mention else ""
-    await _dispatch(
-        event.session_id, thread_id, event.issue, event.creator, request, event.comment_id
-    )
+    await _run(event.session_id, thread_id, event.issue, event.creator, request, event.comment_id)
 
 
 async def _continue_session(event: SessionPrompted) -> None:
@@ -106,7 +124,32 @@ async def _continue_session(event: SessionPrompted) -> None:
         return
     thread_id = linear_issue_thread_id(event.issue.id)
     await _acknowledge(event.session_id, event.delivery_id, thread_id)
-    await _dispatch(event.session_id, thread_id, event.issue, event.author, event.body, None)
+    pending = _pending_question(_metadata(await _thread(thread_id)), event.session_id)
+    if pending is None:
+        await _run(event.session_id, thread_id, event.issue, event.author, event.body, None)
+        return
+    if event.author.id != pending.requester_id:
+        await post_activity(
+            event.session_id,
+            {"type": "thought", "body": "Waiting for the person who asked to choose."},
+            ephemeral=True,
+        )
+        return
+    choice = interpret_answer(pending.options_as_choices(), event.body)
+    repo = repo_from_choice(choice) if choice is not None else None
+    if repo is None:
+        await _ask(event.session_id, pending.prompt, pending.options_as_choices())
+        return
+    await _set_pending_question(thread_id, None)
+    await _run(
+        event.session_id,
+        thread_id,
+        event.issue,
+        event.author,
+        pending.request,
+        pending.comment_id,
+        chosen_repo=repo,
+    )
 
 
 async def _acknowledge(session_id: str, delivery_id: str, thread_id: str) -> None:
@@ -123,22 +166,42 @@ async def _acknowledge(session_id: str, delivery_id: str, thread_id: str) -> Non
             logger.exception("Linking the Open SWE thread to the Linear session failed")
 
 
-async def _dispatch(
+async def _run(
     session_id: str,
     thread_id: str,
     issue: LinearIssue,
     author: LinearUser | None,
     request: str,
     comment_id: str | None,
+    *,
+    chosen_repo: RepoConfig | None = None,
 ) -> None:
-    login = await User.login_for_email(author.email) if author and author.email else None
-    if not login:
-        await post_activity(session_id, {"type": "error", "body": NO_ACCOUNT})
+    """Authorize the requester, settle the repository, then dispatch on the issue thread."""
+    user = await requester(author, issue)
+    actor = await resolve_actor(user)
+    if isinstance(actor, Denied):
+        await post_activity(session_id, {"type": "error", "body": actor.message})
         return
     thread = await _thread(thread_id)
-    repo = await _resolve_repo(request, login, thread)
-    if repo is None:
-        await post_activity(session_id, {"type": "error", "body": NO_REPO})
+    repo = (
+        await check_repo(chosen_repo, actor)
+        if chosen_repo is not None
+        else await choose_repo(request, actor, _metadata(thread), issue, session_id)
+    )
+    if isinstance(repo, Denied):
+        await post_activity(session_id, {"type": "error", "body": repo.message})
+        return
+    if isinstance(repo, PendingQuestion):
+        pending = _PendingQuestion(
+            session_id=session_id,
+            requester_id=repo.requester_id,
+            prompt=repo.prompt,
+            request=request,
+            comment_id=comment_id,
+            options=[_PendingOption(value=o.value, label=o.label) for o in repo.options],
+        )
+        await _set_pending_question(thread_id, pending)
+        await _ask(session_id, repo.prompt, repo.options)
         return
     await _close_superseded_session(thread, session_id)
     issue_data: dict[str, object] = {
@@ -147,11 +210,42 @@ async def _dispatch(
         "identifier": issue.identifier,
         "url": issue.url,
         "description": issue.description,
-        "comment_author": author.model_dump() if author else {},
+        "comment_author": user.model_dump() if user else {},
         "triggering_comment": request,
         "triggering_comment_id": comment_id or "",
     }
     await process_linear_issue(issue_data, repo, linear_session=LinearSessionRef(id=session_id))
+
+
+async def _ask(session_id: str, prompt: str, options: Sequence[SelectOption]) -> None:
+    """A select question; Linear shows the options and sends the pick back as a prompt."""
+    choices: list[JsonValue] = [{"label": o.label, "value": o.value} for o in options]
+    await post_activity(
+        session_id,
+        {"type": "elicitation", "body": prompt},
+        signal="select",
+        signal_metadata={"options": choices},
+    )
+
+
+def _pending_question(metadata: Mapping[str, object], session_id: str) -> _PendingQuestion | None:
+    raw = metadata.get(PENDING_QUESTION_KEY)
+    if not isinstance(raw, Mapping):
+        return None
+    try:
+        pending = _PendingQuestion.model_validate(raw)
+    except ValidationError:
+        logger.warning("Unreadable pending Linear question", exc_info=True)
+        return None
+    return pending if pending.session_id == session_id else None
+
+
+async def _set_pending_question(thread_id: str, pending: _PendingQuestion | None) -> None:
+    client = get_client()
+    value = pending.model_dump(mode="json") if pending is not None else None
+    # The issue's first request may ask before any run has created its thread.
+    await client.threads.create(thread_id=thread_id, if_exists="do_nothing")
+    await client.threads.update(thread_id=thread_id, metadata={PENDING_QUESTION_KEY: value})
 
 
 async def _thread(thread_id: str) -> Thread | None:
@@ -166,25 +260,6 @@ async def _thread(thread_id: str) -> Thread | None:
 def _metadata(thread: Thread | None) -> Mapping[str, object]:
     metadata = thread["metadata"] if thread is not None else None
     return metadata if isinstance(metadata, Mapping) else {}
-
-
-async def _resolve_repo(request: str, login: str, thread: Thread | None) -> dict[str, str] | None:
-    repo = (
-        common.extract_repo_from_text(request, default_owner=common.DEFAULT_REPO_OWNER)
-        or _thread_repo(_metadata(thread))
-        or await common.get_profile_default_repo(login)
-        or (await common.get_workspace_settings()).default_repo
-    )
-    if not repo or not common.is_repo_allowed(repo):
-        return None
-    return repo
-
-
-def _thread_repo(metadata: Mapping[str, object]) -> dict[str, str] | None:
-    repo = metadata.get("repo")
-    if isinstance(repo, dict) and repo.get("owner") and repo.get("name"):
-        return {"owner": str(repo["owner"]), "name": str(repo["name"])}
-    return None
 
 
 async def _close_superseded_session(thread: Thread | None, session_id: str) -> None:

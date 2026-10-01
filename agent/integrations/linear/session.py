@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from collections.abc import Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage
@@ -27,14 +28,29 @@ def final_answer(messages: Sequence[BaseMessage]) -> str:
     return ""
 
 
+# Code and links can carry a "?" that asks nothing.
+_NOT_PROSE = re.compile(r"```.*?```|`[^`]*`|https?://\S+", re.DOTALL)
+
+
+def _ends_with_question(answer: str) -> bool:
+    """A turn whose last paragraph asks something leaves the session awaiting the person."""
+    paragraphs = [part for part in re.split(r"\n\s*\n", answer.strip()) if part.strip()]
+    return bool(paragraphs) and "?" in _NOT_PROSE.sub("", paragraphs[-1])
+
+
 def _fallback(thread_id: str) -> str:
     url = dashboard_thread_url(thread_id)
     return f"Done. The details are in the [Open SWE thread]({url})." if url else "Done."
 
 
 async def post_final_response(session_id: str, run_id: str, thread_id: str, answer: str) -> bool:
-    """Post the run's answer once; the in-run post and the completion backstop share its id."""
-    content: dict[str, JsonValue] = {"type": "response", "body": answer or _fallback(thread_id)}
+    """Post the run's answer once; the in-run post and the completion backstop share its id.
+
+    An answer that ends with a question is posted as an elicitation, so Linear shows
+    the session as awaiting input; the person's reply arrives as a new prompt.
+    """
+    kind = "elicitation" if _ends_with_question(answer) else "response"
+    content: dict[str, JsonValue] = {"type": kind, "body": answer or _fallback(thread_id)}
     activity_id = linear_activity_id("reply", run_id)
     for attempt in range(REPLY_ATTEMPTS):
         try:
