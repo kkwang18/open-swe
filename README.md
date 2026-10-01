@@ -63,6 +63,7 @@ Cloud coding runs in persistent, per-thread Linux sandboxes with tooling supplie
 ## Control and safety
 
 - **GitHub access:** Coding sandboxes normally receive installation-wide GitHub App access; selected workflows use narrower repository scopes. Workspace repository bindings control routing and preloaded checkouts, not a separate credential boundary. See [GitHub access](docs/reference/workspaces.md#github-access-and-the-sandbox-image).
+- **Repository choice:** When a request does not name a repository, the agent uses the default repository configured in the dashboard's agent settings.
 - **Integrations:** MCP connections layer instance-wide, workspace-specific, and personal tools. Configure their scope and credentials in the [customization guide](docs/CUSTOMIZATION.md#workspace-mcp-servers).
 - **Approvals:** Workflow-file approval prompts guard detected Git pushes, not every possible shell or API write. Reviewers are instructed not to commit or push; PR chat excludes mutation tools.
 
