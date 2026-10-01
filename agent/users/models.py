@@ -39,7 +39,7 @@ from agent.utils.json_types import JsonObject
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["github", "slack"]
+Provider = Literal["github", "slack", "linear"]
 
 
 class UserIdentity(Base):

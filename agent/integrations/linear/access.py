@@ -15,6 +15,7 @@ from agent.dashboard.repo_access import require_repo_access_for_user
 from agent.integrations.base import Actor, Denied, PendingQuestion, SelectOption
 from agent.integrations.linear.client import is_guest, issue_creator, suggest_repositories
 from agent.integrations.linear.events import LinearIssue, LinearUser
+from agent.integrations.linear.link import link_url
 from agent.users import User
 from agent.users.authorization import is_authorized_github_login
 from agent.webhooks import common
@@ -25,9 +26,10 @@ logger = logging.getLogger(__name__)
 
 RepoConfig = dict[str, str]
 
-NO_ACCOUNT = (
-    "I couldn't match your Linear account to an Open SWE user. Sign in to Open SWE "
-    "with the email you use in Linear, then mention me again."
+NO_REQUESTER = "I couldn't tell who asked for this, so I can't run it on anyone's behalf."
+LINK_QUESTION = (
+    "Link your Linear account to Open SWE so I can work as you. I'll pick this up as "
+    "soon as you're linked."
 )
 NOT_ALLOWED = "Your account isn't allowed to use Open SWE. Ask an Open SWE admin for access."
 GUEST = "Linear guests can't ask me to work. Ask a member of the team to delegate the issue."
@@ -47,14 +49,23 @@ async def requester(author: LinearUser | None, issue: LinearIssue) -> LinearUser
     return author if author is not None else await issue_creator(issue.id)
 
 
-async def resolve_actor(user: LinearUser | None) -> Actor | Denied:
+async def resolve_actor(
+    user: LinearUser | None, session_id: str, issue: LinearIssue
+) -> Actor | PendingQuestion | Denied:
+    """The linked Open SWE person behind a Linear user; never matched by email."""
     if user is None:
-        return Denied(NO_ACCOUNT)
+        return Denied(NO_REQUESTER)
     if await is_guest(user.id):
         return Denied(GUEST)
-    login = await User.login_for_email(user.email) if user.email else None
+    person = await User.for_identity("linear", user.id)
+    login = person.github_login if person is not None else ""
     if not login:
-        return Denied(NO_ACCOUNT)
+        return PendingQuestion(
+            kind="link_account",
+            prompt=LINK_QUESTION,
+            requester_id=user.id,
+            link_url=link_url(session_id, issue.id),
+        )
     if not await is_authorized_github_login(login):
         return Denied(NOT_ALLOWED)
     return Actor(provider_user_id=user.id, github_login=login, email=user.email or None)

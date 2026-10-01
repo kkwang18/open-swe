@@ -39,6 +39,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
     repo_config: dict[str, str],
     *,
     linear_session: LinearSessionRef | None = None,
+    github_login: str | None = None,
 ) -> None:
     """Process a Linear issue by creating a new LangGraph thread and run.
 
@@ -46,6 +47,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
         issue_data: The Linear issue data from webhook (basic info only).
         repo_config: The repo configuration with owner and name.
         linear_session: The agent session the run reports to, when one started it.
+        github_login: The requester's already-resolved login, instead of matching email.
     """
     issue_id = issue_data.get("id", "")
     common.logger.info(
@@ -188,7 +190,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     # Resolve the GitHub login from the Linear email the same way Slack does, so
     # PRs open *as the triggering user* and the thread is tagged for the dashboard.
-    mapped_login = await User.login_for_email(user_email) if user_email else None
+    mapped_login = github_login or (await User.login_for_email(user_email) if user_email else None)
     # A follow-up stays in its thread's workspace; a new issue lands in the
     # repository's preferred one. Either way its default model and Fable flag
     # are the ones the vision fallback checks.

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from datetime import datetime
@@ -123,3 +124,38 @@ async def test_stop_cancels_only_its_own_sessions_run(monkeypatch):
 
     assert cancelled == ["run-mine"]
     assert responses == [stop.session_id]
+
+
+async def test_link_by_someone_else_does_not_resume_the_request(monkeypatch):
+    created = _event("agent_session_created_delegation")
+    assert isinstance(created, SessionCreated)
+    pending = {
+        "kind": "link_account",
+        "session_id": created.session_id,
+        "requester_id": "the-requester",
+        "prompt": "Link your account",
+        "request": "",
+        "issue": created.issue.model_dump(),
+    }
+
+    async def thread(_thread_id):
+        return {"metadata": {worker.PENDING_QUESTION_KEY: pending}}
+
+    resumed: list[str] = []
+
+    async def run(session_id, *_args, **_kwargs):
+        resumed.append(session_id)
+
+    async def set_pending(_thread_id, _pending):
+        return None
+
+    monkeypatch.setattr(worker, "_thread", thread)
+    monkeypatch.setattr(worker, "_run", run)
+    monkeypatch.setattr(worker, "_set_pending_question", set_pending)
+    monkeypatch.setattr(worker, "post_activity", lambda *_a, **_k: asyncio.sleep(0))
+
+    await worker.resume_after_link(created.session_id, created.issue.id, "someone-else")
+    assert resumed == []
+
+    await worker.resume_after_link(created.session_id, created.issue.id, "the-requester")
+    assert resumed == [created.session_id]

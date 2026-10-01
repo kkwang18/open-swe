@@ -76,3 +76,22 @@ async def test_repo_the_requester_cannot_access_is_refused(monkeypatch, no_defau
 
     assert isinstance(refused, Denied)
     assert "acme/secret" in refused.message
+
+
+async def test_unlinked_requester_is_asked_to_link_not_matched_by_email(monkeypatch):
+    async def not_guest(_user_id):
+        return False
+
+    async def no_identity(_provider, _external_id):
+        return None
+
+    monkeypatch.setattr(access, "is_guest", not_guest)
+    monkeypatch.setattr(access.User, "for_identity", no_identity)
+    requester = access.LinearUser(id="linear-user", email="octocat@example.com")
+
+    asked = await access.resolve_actor(requester, "session-1", ISSUE)
+
+    assert isinstance(asked, PendingQuestion)
+    assert asked.kind == "link_account"
+    assert asked.requester_id == "linear-user"
+    assert asked.link_url is not None and "session=session-1" in asked.link_url

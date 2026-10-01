@@ -20,6 +20,7 @@ from agent.github.pull_request_dashboard_routes import router as pull_requests_r
 from agent.human_review.routes import router as human_review_router
 from agent.incidents.document_routes import router as incident_documents_router
 from agent.incidents.routes import router as incidents_router
+from agent.integrations.linear.link import router as linear_link_router
 from agent.mcp.routes import router as mcp_router
 from agent.review.conversation import router as review_conversation_router
 from agent.review.routes import router as review_router
@@ -47,6 +48,7 @@ router.include_router(profiles_router)
 router.include_router(users_router)
 router.include_router(notion_router)
 router.include_router(slack_router)
+router.include_router(linear_link_router)
 router.include_router(workspace_settings_router)
 router.include_router(mcp_router)
 router.include_router(workspaces_router)

@@ -6,12 +6,13 @@ session unresponsive when no activity arrives within ten seconds.
 
 import logging
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
+from typing import Literal
 
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
 from langgraph_sdk.schema import Run, Thread
-from pydantic import BaseModel, JsonValue, ValidationError
+from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from agent.integrations.base import Denied, PendingQuestion, SelectOption
 from agent.integrations.linear.access import (
@@ -59,12 +60,18 @@ class _PendingOption(BaseModel):
 
 
 class _PendingQuestion(BaseModel):
+    """A question the requester must answer, saved with everything needed to resume."""
+
+    kind: Literal["link_account", "select_repo"] = "select_repo"
     session_id: str
     requester_id: str
     prompt: str
     request: str
     comment_id: str | None = None
-    options: list[_PendingOption]
+    issue: LinearIssue
+    author: LinearUser | None = None
+    options: list[_PendingOption] = Field(default_factory=list)
+    link_url: str | None = None
 
     def options_as_choices(self) -> tuple[SelectOption, ...]:
         return tuple(SelectOption(value=o.value, label=o.label) for o in self.options)
@@ -131,14 +138,26 @@ async def _continue_session(event: SessionPrompted) -> None:
     if event.author.id != pending.requester_id:
         await post_activity(
             event.session_id,
-            {"type": "thought", "body": "Waiting for the person who asked to choose."},
+            {"type": "thought", "body": "Waiting for the person who asked."},
             ephemeral=True,
+        )
+        return
+    if pending.kind == "link_account":
+        # They may have linked already; if not, this asks again.
+        await _set_pending_question(thread_id, None)
+        await _run(
+            event.session_id,
+            thread_id,
+            pending.issue,
+            pending.author,
+            pending.request,
+            pending.comment_id,
         )
         return
     choice = interpret_answer(pending.options_as_choices(), event.body)
     repo = repo_from_choice(choice) if choice is not None else None
     if repo is None:
-        await _ask(event.session_id, pending.prompt, pending.options_as_choices())
+        await _ask(pending)
         return
     await _set_pending_question(thread_id, None)
     await _run(
@@ -178,9 +197,12 @@ async def _run(
 ) -> None:
     """Authorize the requester, settle the repository, then dispatch on the issue thread."""
     user = await requester(author, issue)
-    actor = await resolve_actor(user)
+    actor = await resolve_actor(user, session_id, issue)
     if isinstance(actor, Denied):
         await post_activity(session_id, {"type": "error", "body": actor.message})
+        return
+    if isinstance(actor, PendingQuestion):
+        await _save_and_ask(actor, session_id, thread_id, issue, user, request, comment_id)
         return
     thread = await _thread(thread_id)
     repo = (
@@ -192,16 +214,7 @@ async def _run(
         await post_activity(session_id, {"type": "error", "body": repo.message})
         return
     if isinstance(repo, PendingQuestion):
-        pending = _PendingQuestion(
-            session_id=session_id,
-            requester_id=repo.requester_id,
-            prompt=repo.prompt,
-            request=request,
-            comment_id=comment_id,
-            options=[_PendingOption(value=o.value, label=o.label) for o in repo.options],
-        )
-        await _set_pending_question(thread_id, pending)
-        await _ask(session_id, repo.prompt, repo.options)
+        await _save_and_ask(repo, session_id, thread_id, issue, user, request, comment_id)
         return
     await _close_superseded_session(thread, session_id)
     issue_data: dict[str, object] = {
@@ -214,15 +227,87 @@ async def _run(
         "triggering_comment": request,
         "triggering_comment_id": comment_id or "",
     }
-    await process_linear_issue(issue_data, repo, linear_session=LinearSessionRef(id=session_id))
+    await process_linear_issue(
+        issue_data,
+        repo,
+        linear_session=LinearSessionRef(id=session_id),
+        github_login=actor.github_login,
+    )
 
 
-async def _ask(session_id: str, prompt: str, options: Sequence[SelectOption]) -> None:
-    """A select question; Linear shows the options and sends the pick back as a prompt."""
-    choices: list[JsonValue] = [{"label": o.label, "value": o.value} for o in options]
+async def _save_and_ask(
+    question: PendingQuestion,
+    session_id: str,
+    thread_id: str,
+    issue: LinearIssue,
+    author: LinearUser | None,
+    request: str,
+    comment_id: str | None,
+) -> None:
+    pending = _PendingQuestion(
+        kind=question.kind,
+        session_id=session_id,
+        requester_id=question.requester_id,
+        prompt=question.prompt,
+        request=request,
+        comment_id=comment_id,
+        issue=issue,
+        author=author,
+        options=[_PendingOption(value=o.value, label=o.label) for o in question.options],
+        link_url=question.link_url,
+    )
+    await _set_pending_question(thread_id, pending)
+    await _ask(pending)
+
+
+async def resume_after_link(session_id: str, issue_id: str, linear_user_id: str) -> None:
+    """Pick the request back up once its requester has linked their Linear account."""
+    thread_id = linear_issue_thread_id(issue_id)
+    try:
+        pending = _pending_question(_metadata(await _thread(thread_id)), session_id)
+        if pending is None or pending.kind != "link_account":
+            return
+        if pending.requester_id != linear_user_id:
+            logger.info(
+                "Linear account linked by someone other than the requester",
+                extra={"linear_session_id": session_id},
+            )
+            return
+        await _set_pending_question(thread_id, None)
+        await post_activity(
+            session_id, {"type": "thought", "body": "Linked. Picking up your request."}
+        )
+        await _run(
+            session_id,
+            thread_id,
+            pending.issue,
+            pending.author,
+            pending.request,
+            pending.comment_id,
+        )
+    except Exception:
+        logger.exception("Resuming a Linear request after linking failed")
+        await _report_failure(session_id)
+
+
+async def _ask(pending: _PendingQuestion) -> None:
+    """Linear renders a select question as options and a link question as a button."""
+    if pending.kind == "link_account" and pending.link_url:
+        await post_activity(
+            pending.session_id,
+            {"type": "elicitation", "body": pending.prompt},
+            signal="auth",
+            signal_metadata={
+                "url": pending.link_url,
+                "userId": pending.requester_id,
+                "providerName": "Open SWE",
+            },
+        )
+        return
+    choices: list[JsonValue] = [{"label": o.label, "value": o.value} for o in pending.options]
     await post_activity(
-        session_id,
-        {"type": "elicitation", "body": prompt},
+        pending.session_id,
+        {"type": "elicitation", "body": pending.prompt},
         signal="select",
         signal_metadata={"options": choices},
     )
