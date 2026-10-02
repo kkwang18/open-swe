@@ -86,7 +86,9 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
     title = full_issue.get("title", "No title")
     description = full_issue.get("description") or "No description"
     image_urls: list[str] = []
-    description_image_urls = common.extract_image_urls(description)
+    # A later message in a session continues a thread that already has the issue.
+    session_reply = linear_session is not None and not prompt_context
+    description_image_urls = [] if session_reply else common.extract_image_urls(description)
     if description_image_urls:
         image_urls.extend(description_image_urls)
         common.logger.debug(
@@ -176,20 +178,29 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     identifier = full_issue.get("identifier", "") or issue_data.get("identifier", "")
     ticket_url = full_issue.get("url", "") or issue_data.get("url", "")
-    issue_prompt = (
-        prompt(
+    repository = f"{repo_config.get('owner')}/{repo_config.get('name')}"
+    if prompt_context:
+        issue_prompt = prompt(
             "runs/linear-session",
-            repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
+            repository=repository,
             triggered_by=user_name,
             identifier=identifier,
             issue_id=issue_id,
             ticket_url=ticket_url,
             prompt_context=prompt_context,
         )
-        if prompt_context
-        else prompt(
+    elif session_reply:
+        issue_prompt = prompt(
+            "runs/linear-session-reply",
+            repository=repository,
+            identifier=identifier,
+            title=title,
+            ticket_url=ticket_url,
+        )
+    else:
+        issue_prompt = prompt(
             "runs/linear-issue",
-            repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
+            repository=repository,
             title=title,
             triggered_by=user_name,
             identifier=identifier,
@@ -197,7 +208,6 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
             ticket_url=ticket_url,
             description=description,
         )
-    )
     description_blocks: list[dict[str, Any]] = [
         cast(dict[str, Any], create_text_block(issue_prompt))
     ]

@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from agent.linear import webhook as linear_webhook
+from agent.source_context import LinearSessionRef
 
 
 def _full_issue(*, user_email: str | None = "zhen@example.com", user_name: str = "Zhen") -> dict:
@@ -32,6 +33,7 @@ def _run_process(
     *,
     full_issue: dict[str, Any] | None = None,
     thread_workspace: str | None = None,
+    linear_session: LinearSessionRef | None = None,
 ) -> tuple[dict, dict, str | None, object]:
     captured: dict[str, Any] = {}
 
@@ -99,7 +101,11 @@ def _run_process(
             side_effect=lambda url, _client: {"type": "image_url", "image_url": {"url": url}},
         ),
     ):
-        asyncio.run(linear_webhook.process_linear_issue(issue_data, repo_config))
+        asyncio.run(
+            linear_webhook.process_linear_issue(
+                issue_data, repo_config, linear_session=linear_session
+            )
+        )
 
     return (
         captured.get("configurable", {}),
@@ -118,6 +124,19 @@ def test_linear_follow_up_keeps_the_threads_workspace(fake_store: Any) -> None:
 
     assert configurable["workspace"] == "core"
     assert upsert["workspace"] == "core"
+
+
+def test_a_reply_in_a_linear_session_is_not_told_to_implement_the_issue(fake_store: Any) -> None:
+    issue = _issue_data(user_email="zhen@example.com")
+    issue["triggering_comment"] = "hi"
+    _configurable, _upsert, _email, content = _run_process(
+        issue,
+        {"owner": "langchain-ai", "name": "open-swe"},
+        linear_session=LinearSessionRef(id="session-1"),
+    )
+
+    assert "hi" in str(content)
+    assert "implement the necessary changes" not in str(content)
 
 
 def test_linear_new_thread_lands_in_the_repositorys_preferred_workspace(fake_store: Any) -> None:
