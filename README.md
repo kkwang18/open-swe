@@ -81,3 +81,5 @@ Sandboxes have powerful tools and may have network access. Use least-privilege c
 ## License
 
 Open SWE is licensed under the [MIT License](LICENSE).
+
+Open SWE is an open-source, asynchronous coding agent that plans, writes, tests, and opens pull requests for your repositories from Slack, Linear, GitHub, or its dashboard.
