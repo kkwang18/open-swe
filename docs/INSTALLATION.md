@@ -17,7 +17,7 @@ What a deployment needs:
 | `CONFIGURED_ADMINS` | The GitHub logins or emails of your admins (step 6) |
 | `LANGGRAPH_URL` | The deployment's own public URL |
 
-GitHub and Slack are the two surfaces every deployment has; Linear is an optional add-on. Every variable Open SWE reads is declared in `agent/config.py` with its description and default; that file is the complete reference.
+GitHub and Slack are the two surfaces every deployment has; Linear and GitLab are optional add-ons. Every variable Open SWE reads is declared in `agent/config.py` with its description and default; that file is the complete reference.
 
 ## 1. Create the deployment
 
@@ -382,6 +382,23 @@ The app's token reaches public teams only. Runs started from Linear get the issu
 
 </details>
 
+<details id="gitlab">
+<summary><strong>GitLab</strong></summary>
+
+Open SWE works on projects hosted on GitLab.com or a self-managed instance: @mention its GitLab user on an issue or merge request, or assign it an issue, and it reacts with 👀, works in a sandbox, opens a merge request, and replies in the same discussion.
+
+1. Create the bot as a **service account** (a top-level group Owner can on GitLab.com, Free included from 18.11; an administrator on self-managed, Free from 18.10): name it so its username reads well in a mention, such as `openswe`. On older versions, use a dedicated user instead. Give it the **Developer** role on the projects or group it should work in (**Maintainer** if it must push to protected branches), and create a personal access token for it with the `api`, `read_repository` and `write_repository` scopes. Its memberships are the limit of what runs can reach, whoever asks, so add it only where Open SWE should work.
+2. Add a webhook to each project, or once to the group on Premium or Ultimate, where it covers the group's projects: URL `<URL>/webhooks/gitlab`, triggers **Comments** and **Issues events**, SSL verification on, and a **signing token** (or, on older GitLab, a secret token).
+3. Set `GITLAB_TOKEN`, `GITLAB_WEBHOOK_SECRET` (the signing token, `whsec_…`, or the secret token), and for a self-managed instance `GITLAB_URL` (default `https://gitlab.com`). So that a failed run still reports on GitLab, also set `RUN_COMPLETE_WEBHOOK_SECRET` and `COMPLETION_WEBHOOK_URL` as for Linear. Restart; the log shows `GitLab bot authenticated`.
+
+Only people with the Developer role or higher on the project can ask; others get a reply saying so. Runs act as the bot: it clones, pushes and opens merge requests with its token, which the sandbox proxy adds to git traffic for the GitLab host only on threads started from GitLab, so the agent never sees it. As for GitHub, that proxy needs LangSmith sandboxes (`SANDBOX_TYPE=langsmith`). The project the request came from is the repository. A mention on a merge request Open SWE opened continues the thread that opened it; a mention on any other merge request works on its source branch. Each issue and merge request has one thread, so a follow-up mention continues it. A thread appears in the dashboard sidebar of the person who asked when their GitLab profile shows a public email that matches their Open SWE account; anyone can still open it by its link. A merge request that resolves an issue says `Closes #<iid>`, so GitLab closes the issue when it merges.
+
+The sandbox must reach the GitLab host: a self-managed instance behind a VPN needs a sandbox provider inside that network. GitLab repositories cannot yet be picked from the dashboard, Slack or Linear, and the reviewer does not review merge requests.
+
+**Verify:** comment `@<bot-username> what does this project do?` on an issue. 👀 appears on the comment within a few seconds, then a reply in the same discussion.
+
+</details>
+
 <details id="dashboard-on-its-own-origin">
 <summary><strong>Dashboard on its own origin (separate frontend deployment)</strong></summary>
 
@@ -434,8 +451,8 @@ Shared backend startup requires at least one entry in `ALLOWED_GITHUB_ORGS` or `
 ### Webhook not receiving events
 
 - The URL configured in GitHub, Slack, or Linear must be the deployment's URL; GitHub shows each delivery and its response under the App's **Advanced** tab. A new webhook or signing secret takes effect only after the deployment restarts with it; deliveries in between are rejected as `Invalid signature`, and Slack then needs **Retry** on its Request URL under **Event Subscriptions**.
-- Enable the right events: Issue comment and the pull request review events for GitHub, `app_mention` for Slack, Agent session events and Issues for Linear.
-- Webhook secrets are required: without `GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, or `LINEAR_WEBHOOK_SECRET`, every request to that endpoint is rejected with 401.
+- Enable the right events: Issue comment and the pull request review events for GitHub, `app_mention` for Slack, Agent session events and Issues for Linear, Comments and Issues events for GitLab.
+- Webhook secrets are required: without `GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, or `LINEAR_WEBHOOK_SECRET`, every request to that endpoint is rejected with 401. GitLab's endpoint ignores deliveries until both `GITLAB_TOKEN` and `GITLAB_WEBHOOK_SECRET` are set, and rejects a wrong signature with 401, which GitLab counts towards disabling the webhook.
 
 ### Thread credential scope
 

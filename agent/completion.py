@@ -24,6 +24,7 @@ from agent.config import ENV
 from agent.dispatch import FOLLOW_UP_PICKUP_KIND
 from agent.github.app import get_github_app_installation_token
 from agent.github.comments import post_github_comment
+from agent.integrations.gitlab.notifications import post_gitlab_failure
 from agent.integrations.linear.session import (
     final_answer,
     post_final_response,
@@ -247,6 +248,9 @@ async def _post_failure_reply(
                     token=token,
                 )
         return linear_posted
+
+    if source == "gitlab" and ctx.gitlab is not None:
+        return await post_gitlab_failure(ctx.gitlab, _failure_text(status, reason_code=reason_code))
 
     if linear_posted:
         return True

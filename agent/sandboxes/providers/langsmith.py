@@ -411,16 +411,19 @@ async def configure_sandbox_proxy(
         or rule.get("name")
         not in {"github", "github-api", "github-public", "open-swe-langsmith", "stagehand-model"}
     ]
+    from agent.integrations.gitlab.sandbox import GITLAB_RULE, gitlab_proxy_rule
     from agent.sandboxes.tool_access import TOOLS_RULE, tool_proxy_rule
 
     preserved_rules = [
         rule
         for rule in preserved_rules
-        if not isinstance(rule, dict) or rule.get("name") != TOOLS_RULE
+        if not isinstance(rule, dict) or rule.get("name") not in {TOOLS_RULE, GITLAB_RULE}
     ]
     tools_rule = await tool_proxy_rule(thread_id, sandbox_name) if thread_id else None
+    gitlab_rule = await gitlab_proxy_rule(thread_id)
     proxy_config["rules"] = [
         *_github_proxy_rules(github_token),
+        *([gitlab_rule] if gitlab_rule else []),
         *([tools_rule] if tools_rule else []),
         *preserved_rules,
     ]

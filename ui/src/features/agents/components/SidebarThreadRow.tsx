@@ -25,7 +25,7 @@ import {
   IoLogoGithub,
   IoLogoSlack,
 } from "react-icons/io5"
-import { SiLinear } from "react-icons/si"
+import { SiGitlab, SiLinear } from "react-icons/si"
 import { useEffect, useRef, useState } from "react"
 import type { ComponentType, SVGProps } from "react"
 
@@ -60,6 +60,7 @@ type Icon = ComponentType<SVGProps<SVGSVGElement>>
 const SOURCE_META: Record<AgentSource, { icon: Icon; label: string }> = {
   dashboard: { icon: ChatCircleIcon, label: "Started from the dashboard" },
   github: { icon: IoLogoGithub, label: "Triggered from GitHub" },
+  gitlab: { icon: SiGitlab, label: "Triggered from GitLab" },
   slack: { icon: IoLogoSlack, label: "Triggered from Slack" },
   linear: { icon: SiLinear, label: "Triggered from Linear" },
   schedule: { icon: CalendarBlankIcon, label: "Triggered from a schedule" },

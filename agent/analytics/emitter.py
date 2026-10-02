@@ -48,6 +48,7 @@ _ENTRY_POINTS = {
     "desktop": EntryPoint.DESKTOP,
     "api": EntryPoint.API,
     "linear": EntryPoint.LINEAR,
+    "gitlab": EntryPoint.GITLAB,
 }
 
 

@@ -1,0 +1,22 @@
+{% if assigned %}You were assigned this GitLab issue; the issue itself is the request.{% else %}You were mentioned on this GitLab {{ kind }}; the request is in the comment that follows.{% endif %}
+
+
+## Repository: {{ repository }} on GitLab ({{ project_url }})
+
+## {{ kind | capitalize }} {{ reference }}: {{ title }}
+
+{% if url %}
+## URL: {{ url }}
+
+{% endif %}
+## Triggered by: {{ triggered_by }}
+
+{% if source_branch %}
+## Branches: `{{ source_branch }}` into `{{ target_branch }}`{% if not same_project %} (from a fork: you cannot push to it, so open a new merge request instead){% endif %}
+
+
+{% endif %}
+## Description:
+{{ description }}
+
+Answer questions with a reply only. For changes, follow this repository's conventions (AGENTS.md, merge request templates, nearby docs).{% if source_branch and same_project %} To change this merge request, push to its source branch instead of opening a new one.{% endif %}
