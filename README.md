@@ -81,3 +81,65 @@ Sandboxes have powerful tools and may have network access. Use least-privilege c
 ## License
 
 Open SWE is licensed under the [MIT License](LICENSE).
+
+## Español
+
+Open SWE convierte el trabajo de ingeniería en un sistema repetible: investiga una base de código, implementa cambios, los valida y entrega una solicitud de incorporación de cambios (pull request). También revisa solicitudes de incorporación de cambios, aprende las preferencias de revisión específicas de cada repositorio, supervisa la integración continua (CI) y responde a los comentarios. Creado por LangChain, es de código abierto y se puede desplegar en su propia infraestructura.
+
+> [!NOTE]
+> **En desarrollo activo.** Pueden producirse cambios incompatibles y aún hay aspectos sin pulir. Por el momento no aceptamos incidencias ni contribuciones externas. Puede explorar el código y crear una bifurcación (fork), pero no se garantizan la exactitud, la estabilidad ni la compatibilidad.
+
+### Primeros pasos
+
+- **[Desplegar para un equipo](docs/INSTALLATION.md)** — Configure el backend, el panel de control, las aplicaciones de GitHub y Slack, y las credenciales de los modelos. Los despliegues de producción de Agent Server independiente requieren una clave de licencia.
+- **[Desarrollar localmente](docs/DEVELOPMENT.md)** — Siga, en orden, la configuración de dependencias, credenciales, base de datos, recarga en caliente y un túnel exclusivo para webhooks.
+- **[Aplicación de escritorio (experimental)](docs/DEVELOPMENT.md#desktop-app-experimental)** — Trabaje con repositorios locales. Las versiones empaquetadas de la aplicación están destinadas a macOS; las compilaciones desde el código fuente también son compatibles con Windows y Linux.
+- **[Usar la CLI](cli/README.md)** — Conecte un directorio local a un agente de su despliegue. Los comandos se ejecutan localmente con su usuario, sin el aislamiento de un entorno aislado (sandbox).
+
+### Qué hace Open SWE
+
+```mermaid
+flowchart LR
+    A[Issues, conversations, PRs, schedules] --> B[Plan and investigate]
+    B --> C[Implement in an isolated sandbox]
+    C --> D[Validate and deliver a PR]
+    D --> E[Review, CI, and feedback]
+    E -->|Follow-up work| B
+```
+
+- **Desarrollar:** Investiga repositorios, edita código, ejecuta validaciones específicas y abre o actualiza solicitudes de incorporación de cambios.
+- **Paralelizar:** Utiliza subagentes para la investigación y el trabajo independiente.
+- **Revisar:** Ejecuta revisiones bajo demanda o automáticas (si se activan), publica los hallazgos en GitHub y aprende de los comentarios anteriores.
+- **Investigar:** Utiliza el chat de solo lectura sobre solicitudes de incorporación de cambios para comprender un cambio sin implementar modificaciones.
+- **Operar:** Programa tareas periódicas y supervisa las solicitudes de incorporación de cambios inscritas con `/baby-sit`, diagnostica fallos y vuelve a ejecutar solo los trabajos inestables cuando hay evidencia que lo respalde.
+- **Personalizar:** Elija modelos, nivel de razonamiento, instrucciones, habilidades (skills), integraciones y proveedores de entornos aislados.
+
+Inicie y continúe el trabajo desde el **panel de control**, las **conversaciones de incidencias y solicitudes de incorporación de cambios de GitHub** o **Slack**. En [Linear](docs/INSTALLATION.md#linear), delegue una incidencia a Open SWE o menciónelo con @: funciona como un agente de Linear, muestra el progreso en la sesión de agente de la incidencia y responde con su respuesta y la solicitud de incorporación de cambios. Desde Slack, pídale que primero cree la incidencia en Linear. En [GitLab](docs/INSTALLATION.md#gitlab), menciónelo con @ en una incidencia o solicitud de fusión (merge request), o asígnele una incidencia: trabaja en el proyecto de GitLab y responde con una solicitud de fusión. Los seguimientos de programación en la nube reutilizan el contexto y el entorno aislado de la conversación; las conversaciones independientes pueden ejecutarse en paralelo.
+
+### Cómo funciona
+
+[Deep Agents](https://github.com/langchain-ai/deepagents) proporciona las primitivas de planificación, sistema de archivos, terminal, habilidades y subagentes. [LangGraph](https://github.com/langchain-ai/langgraph) ofrece ejecución duradera y el estado de las conversaciones. Open SWE añade herramientas de ingeniería, integraciones, autorización e interfaces de usuario. Los puntos de entrada de los grafos se declaran en [`langgraph.json`](langgraph.json), junto con un [inventario de la arquitectura](AGENTS.md#architecture).
+
+La programación en la nube se ejecuta en entornos aislados de Linux persistentes, uno por conversación, con herramientas proporcionadas por scripts o instantáneas del espacio de trabajo. Un entorno aislado de programación inaccesible no se reemplaza de forma silenciosa. [LangSmith](https://smith.langchain.com/) es el proveedor predeterminado de entornos aislados y de trazas; [otros proveedores y la ejecución local](docs/CUSTOMIZATION.md#1-sandbox) son configurables. El chat sobre solicitudes de incorporación de cambios no necesita un entorno aislado.
+
+### Control y seguridad
+
+- **Acceso a GitHub:** Los entornos aislados de programación normalmente reciben acceso de la aplicación de GitHub a toda la instalación; algunos flujos de trabajo usan permisos más restringidos por repositorio. Las vinculaciones de repositorios del espacio de trabajo controlan el enrutamiento y las copias precargadas, no un límite de credenciales independiente. Consulte [Acceso a GitHub](docs/reference/workspaces.md#github-access-and-the-sandbox-image).
+- **Integraciones:** Las conexiones MCP combinan herramientas de toda la instancia, específicas del espacio de trabajo y personales. Configure su alcance y sus credenciales en la [guía de personalización](docs/CUSTOMIZATION.md#workspace-mcp-servers).
+- **Aprobaciones:** Las solicitudes de aprobación de archivos de flujo de trabajo protegen los envíos (push) de Git detectados, no todas las escrituras posibles mediante la terminal o la API. Los revisores tienen instrucciones de no confirmar (commit) ni enviar cambios; el chat sobre solicitudes de incorporación de cambios excluye las herramientas de modificación.
+
+Los entornos aislados tienen herramientas potentes y pueden tener acceso a la red. Utilice credenciales con el mínimo privilegio, restrinja los repositorios y las integraciones, y adapte las políticas de aprobación a su despliegue. La ejecución local no ofrece el aislamiento de un entorno aislado en la nube.
+
+### Documentación
+
+- [Guía de personalización](docs/CUSTOMIZATION.md) — Modelos, entornos aislados, herramientas, habilidades, instrucciones (prompts), desencadenadores y middleware
+- [Referencia de espacios de trabajo](docs/reference/workspaces.md) — Enrutamiento, configuración, imágenes y acceso
+- [Revisión humana en Slack](docs/reference/human-review.md) — Solicitudes de revisión en el canal de Slack de un repositorio, que se fusionan cuando los revisores las aprueban
+- [Revisión acelerada en Slack](docs/reference/expedited-slack-review.md) — Aprobación humana para solicitudes de incorporación de cambios pequeñas
+- [Documentación de la API del backend](docs/DEVELOPMENT.md#backend-api-documentation) — Documentación de la API en vivo y el [esquema OpenAPI](swagger.json) generado
+- [Anuncio original](https://blog.langchain.com/open-swe-an-open-source-framework-for-internal-coding-agents/) — Contexto sobre el marco de trabajo para agentes de programación internos
+- [Política de seguridad](SECURITY.md) — Informe de problemas de seguridad de forma privada
+
+### Licencia
+
+Open SWE se distribuye bajo la [Licencia MIT](LICENSE).
