@@ -28,6 +28,7 @@ from agent.integrations.linear.session import (
     final_answer,
     post_final_response,
     post_session_error,
+    run_session_id,
 )
 from agent.invocation import resolve_invocation_id, with_invocation_id
 from agent.linear.notifications import post_linear_notification
@@ -213,9 +214,9 @@ async def _post_failure_reply(
         return False
 
     if source == "linear":
-        if ctx.linear_session and ctx.linear_session.id:
+        if session_id := await _linear_session_of(thread_id, run_id):
             return await post_session_error(
-                ctx.linear_session.id, run_id, _failure_text(status, reason_code=reason_code)
+                session_id, run_id, _failure_text(status, reason_code=reason_code)
             )
         if ctx.linear_issue and ctx.linear_issue.id:
             return await post_linear_notification(
@@ -341,12 +342,20 @@ async def _settle_code_channel_session(
     await set_session_status(slack_thread.channel_id, "active")
 
 
-async def _settle_linear_session(
-    thread: object, thread_id: str, run_id: str, metadata: dict[str, Any]
-) -> None:
+async def _linear_session_of(thread_id: str, run_id: str | None) -> str | None:
+    if not run_id:
+        return None
+    try:
+        return run_session_id(await langgraph_client().runs.get(thread_id, run_id))
+    except Exception:
+        logger.warning("run-complete: could not load run %s", run_id, exc_info=True)
+        return None
+
+
+async def _settle_linear_session(thread: object, thread_id: str, run_id: str) -> None:
     """Close the run's Linear session if the run itself could not; a repeat is a no-op."""
-    session = SourceContext.from_metadata(metadata).linear_session
-    if session is None or not session.id:
+    session_id = await _linear_session_of(thread_id, run_id)
+    if session_id is None:
         return
     values = thread.get("values") if isinstance(thread, dict) else None
     raw_messages = values.get("messages") if isinstance(values, dict) else None
@@ -355,7 +364,7 @@ async def _settle_linear_session(
     except _MESSAGE_CONVERSION_ERRORS:
         logger.warning("run-complete: unreadable messages for Linear reply", exc_info=True)
         messages = []
-    await post_final_response(session.id, run_id, thread_id, final_answer(messages))
+    await post_final_response(session_id, run_id, thread_id, final_answer(messages))
 
 
 async def _handle_successful_run(
@@ -378,7 +387,7 @@ async def _handle_successful_run(
         return await turns.handle_run_completion(thread_id, run_id, "success")
     if metadata.get("kind") == REVIEWER_THREAD_KIND:
         return {"status": "ignored", "reason": "not an agent Slack run"}
-    await _settle_linear_session(thread, thread_id, run_id, metadata)
+    await _settle_linear_session(thread, thread_id, run_id)
     await _settle_code_channel_session(client, thread_id, metadata)
     await sync_slack_background_status(client, thread_id)
     payload_metadata = payload.get("metadata")

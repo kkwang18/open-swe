@@ -126,6 +126,34 @@ async def test_stop_cancels_only_its_own_sessions_run(monkeypatch):
     assert responses == [stop.session_id]
 
 
+async def test_new_session_closes_the_session_whose_run_it_interrupts(monkeypatch):
+    # The thread outlives its sessions, so the running run's config, not the thread's
+    # metadata, says which session to close; a dashboard run has none.
+    class Runs:
+        async def list(self, thread_id: str, *, status: str, limit: int) -> list[dict[str, object]]:
+            if status != "running":
+                return []
+            configurable = {"linear_session": {"id": "second-session"}}
+            return [
+                {"run_id": "run-1", "kwargs": {"config": {"configurable": configurable}}},
+                {"run_id": "run-2", "kwargs": {"config": {"configurable": {}}}},
+            ]
+
+    client = _FakeClient()
+    client.runs = Runs()
+    closed: list[str] = []
+
+    async def post_activity(session_id, content, **_):
+        closed.append(session_id)
+
+    monkeypatch.setattr(worker, "get_client", lambda: client)
+    monkeypatch.setattr(worker, "post_activity", post_activity)
+
+    await worker._close_superseded_sessions("thread-1", "third-session")
+
+    assert closed == ["second-session"]
+
+
 async def test_link_by_someone_else_does_not_resume_the_request(monkeypatch):
     created = _event("agent_session_created_delegation")
     assert isinstance(created, SessionCreated)

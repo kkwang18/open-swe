@@ -3,9 +3,10 @@
 import asyncio
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage
+from langgraph_sdk.schema import Run
 from pydantic import JsonValue
 
 from agent.integrations.linear.client import linear_activity_id, post_activity
@@ -14,6 +15,20 @@ from agent.utils.dashboard_links import dashboard_thread_url
 logger = logging.getLogger(__name__)
 
 REPLY_ATTEMPTS = 3
+
+
+def run_session_id(run: Run) -> str | None:
+    """The Linear session a run reports to.
+
+    Only the run's own config says which: an issue thread outlives its sessions, and
+    runs started elsewhere, such as from the dashboard, report to none.
+    """
+    kwargs = run.get("kwargs")
+    config = kwargs.get("config") if isinstance(kwargs, Mapping) else None
+    configurable = config.get("configurable") if isinstance(config, Mapping) else None
+    session = configurable.get("linear_session") if isinstance(configurable, Mapping) else None
+    session_id = session.get("id") if isinstance(session, Mapping) else None
+    return session_id if isinstance(session_id, str) and session_id else None
 
 
 def final_answer(messages: Sequence[BaseMessage]) -> str:
