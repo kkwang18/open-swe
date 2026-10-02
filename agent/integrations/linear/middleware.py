@@ -21,6 +21,7 @@ from agent.integrations.linear.session import (
     post_final_response,
     post_question_with_options,
 )
+from agent.integrations.linear.slack_origin import announce_pull_request
 from agent.middleware.message_content import content_to_text
 from agent.middleware.trace import OpenSWEMiddleware
 
@@ -73,8 +74,8 @@ def _asked_question(result: ToolMessage | Command) -> tuple[str, list[str]] | No
     return question, [option for option in options if isinstance(option, str)]
 
 
-def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str] | None:
-    """``(label, url)`` of the PR an ``open_pull_request`` call opened or found."""
+def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str, bool] | None:
+    """``(label, url, created)`` of the PR an ``open_pull_request`` call opened or found."""
     if not isinstance(result, ToolMessage):
         return None
     try:
@@ -86,7 +87,8 @@ def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str] | Non
     url, number = payload.get("url"), payload.get("number")
     if not isinstance(url, str) or not url:
         return None
-    return (f"Pull request #{number}" if isinstance(number, int) else "Pull request"), url
+    label = f"Pull request #{number}" if isinstance(number, int) else "Pull request"
+    return label, url, payload.get("created") is True
 
 
 def _run_ids() -> tuple[str, str] | None:
@@ -149,8 +151,11 @@ class LinearSessionMiddleware(OpenSWEMiddleware):
             self._enqueue(lambda: post_activity(self._session_id, content))
         result = await handler(request)
         if name == "open_pull_request" and (pr := _opened_pull_request(result)) is not None:
-            label, url = pr
+            label, url, created = pr
             self._enqueue(lambda: add_session_link(self._session_id, label, url))
+            if created and (ids := _run_ids()) is not None:
+                issue_thread_id = ids[0]
+                self._enqueue(lambda: announce_pull_request(issue_thread_id, label, url))
         if name == ASK_TOOL and (asked := _asked_question(result)) is not None:
             self._enqueue_question(*asked)
         return result

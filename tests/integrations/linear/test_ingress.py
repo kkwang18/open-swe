@@ -12,7 +12,12 @@ from langgraph_sdk.errors import ConflictError
 
 from agent.integrations import intake
 from agent.integrations.base import Ignored
-from agent.integrations.linear.events import DelegationRemoved, LinearEvent, SessionCreated
+from agent.integrations.linear.events import (
+    DelegationRemoved,
+    IssueCompleted,
+    LinearEvent,
+    SessionCreated,
+)
 from agent.integrations.linear.integration import LinearIntegration
 from agent.prompt import construct_system_prompt
 
@@ -148,3 +153,13 @@ def test_session_guidance_reaches_the_system_prompt_once():
     assert "From team Backend:\nWork in acme/api." in system_prompt
     assert "<guidance>" not in event.prompt_context
     assert '<issue identifier="OSWE-6">' in event.prompt_context
+
+
+@pytest.mark.parametrize(("state_type", "completed"), [("completed", True), ("started", False)])
+def test_only_a_move_to_a_completed_status_is_an_issue_completion(state_type, completed):
+    payload = _payload("issue_delegated")
+    payload["updatedFrom"] = {"stateId": "previous-state"}
+    payload["data"]["state"] = {"id": "s1", "name": "Done", "type": state_type}
+    now = _created_at("issue_delegated")
+    event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
+    assert isinstance(event, IssueCompleted) is completed

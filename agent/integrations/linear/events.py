@@ -73,7 +73,16 @@ class DelegationRemoved:
     previous_delegate_id: str
 
 
-LinearEvent = SessionCreated | SessionPrompted | DelegationRemoved
+@dataclass(frozen=True)
+class IssueCompleted:
+    """An issue moved to a completed status, such as when Linear closes it on merge."""
+
+    delivery_id: str
+    created_at: datetime
+    issue: LinearIssue
+
+
+LinearEvent = SessionCreated | SessionPrompted | DelegationRemoved | IssueCompleted
 
 
 class Envelope(BaseModel):
@@ -134,8 +143,13 @@ class AgentSessionPayload(BaseModel):
     guidance: list[GuidanceRule] | None = None
 
 
+class _IssueState(BaseModel):
+    type: str = ""
+
+
 class _IssueData(LinearIssue):
     delegate_id: str | None = Field(None, alias="delegateId")
+    state: _IssueState | None = None
 
 
 class IssueUpdatePayload(BaseModel):

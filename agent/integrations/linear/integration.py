@@ -15,6 +15,7 @@ from agent.integrations.linear.events import (
     DelegationRemoved,
     Envelope,
     GuidanceRule,
+    IssueCompleted,
     IssueUpdatePayload,
     LinearEvent,
     LinearIssue,
@@ -107,7 +108,7 @@ class LinearIntegration:
         if envelope.type == "AgentSessionEvent" and created_at is not None:
             return self._session_event(delivery_id, envelope.action, created_at, body)
         if envelope.type == "Issue" and envelope.action == "update" and created_at is not None:
-            return self._delegation_removed(delivery_id, created_at, body)
+            return self._issue_update(delivery_id, created_at, body)
         return Ignored(f"{envelope.type} {envelope.action} is not handled")
 
     def _session_event(
@@ -151,19 +152,23 @@ class LinearIntegration:
             )
         return Ignored(f"agent session {action} is not handled")
 
-    def _delegation_removed(
+    def _issue_update(
         self, delivery_id: str, created_at: datetime, body: bytes
-    ) -> DelegationRemoved | Ignored:
+    ) -> DelegationRemoved | IssueCompleted | Ignored:
         payload = IssueUpdatePayload.model_validate_json(body)
+        issue = LinearIssue.model_validate(payload.data.model_dump(by_alias=True))
         previous = payload.updated_from.get("delegateId")
-        if not isinstance(previous, str) or payload.data.delegate_id is not None:
-            return Ignored("not an undelegation")
-        return DelegationRemoved(
-            delivery_id=delivery_id,
-            created_at=created_at,
-            issue=LinearIssue.model_validate(payload.data.model_dump(by_alias=True)),
-            previous_delegate_id=previous,
-        )
+        if isinstance(previous, str) and payload.data.delegate_id is None:
+            return DelegationRemoved(
+                delivery_id=delivery_id,
+                created_at=created_at,
+                issue=issue,
+                previous_delegate_id=previous,
+            )
+        state = payload.data.state
+        if "stateId" in payload.updated_from and state is not None and state.type == "completed":
+            return IssueCompleted(delivery_id=delivery_id, created_at=created_at, issue=issue)
+        return Ignored("issue update not handled")
 
     def _is_stale(self, event: LinearEvent) -> bool:
         # Stopping is always wanted, however late it arrives.

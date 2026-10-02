@@ -346,6 +346,7 @@ async def list_teams() -> list[LinearTeam]:
 
 
 class CreatedIssue(BaseModel):
+    id: str
     identifier: str
     url: str
 
@@ -360,7 +361,7 @@ class _IssueCreateData(BaseModel):
 
 _ISSUE_CREATE = """
 mutation IssueCreate($input: IssueCreateInput!) {
-  issueCreate(input: $input) { issue { identifier url } }
+  issueCreate(input: $input) { issue { id identifier url } }
 }
 """
 

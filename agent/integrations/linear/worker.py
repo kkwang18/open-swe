@@ -33,6 +33,7 @@ from agent.integrations.linear.client import (
 )
 from agent.integrations.linear.events import (
     DelegationRemoved,
+    IssueCompleted,
     LinearEvent,
     LinearIssue,
     LinearUser,
@@ -41,6 +42,7 @@ from agent.integrations.linear.events import (
 )
 from agent.integrations.linear.outside import is_own_session
 from agent.integrations.linear.session import run_session, run_session_id
+from agent.integrations.linear.slack_origin import announce_done
 from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef
 from agent.thread_ids import linear_issue_thread_id
@@ -95,12 +97,14 @@ async def process_linear_event(event: LinearEvent) -> None:
                 await _continue_session(event)
             case DelegationRemoved():
                 await _stop_after_undelegation(event)
+            case IssueCompleted():
+                await announce_done(event.issue.id, event.issue.identifier, event.issue.url)
     except Exception:
         logger.exception(
             "Linear event processing failed",
             extra={"linear_event": type(event).__name__, "linear_delivery_id": event.delivery_id},
         )
-        if not isinstance(event, DelegationRemoved):
+        if isinstance(event, SessionCreated | SessionPrompted):
             await _report_failure(event.session_id)
 
 
