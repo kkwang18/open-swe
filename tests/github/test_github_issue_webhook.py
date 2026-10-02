@@ -636,6 +636,88 @@ async def test_process_github_pr_review_skips_only_empty_untagged_approvals(
         dispatch.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("visibility", "continues_opening_thread"),
+    [("public", True), ("private", False)],
+    ids=["opening-thread", "private-opening-thread-falls-back"],
+)
+async def test_tagged_comment_on_an_agent_pr_continues_the_thread_that_opened_it(
+    monkeypatch: pytest.MonkeyPatch, visibility: str, continues_opening_thread: bool
+) -> None:
+    # Open SWE's branches carry no thread id, so only the PR's record leads back to the
+    # thread, for example a Linear issue's, whose request produced the PR.
+    opening_thread = "linear-issue-thread"
+    pull_request = PullRequest(
+        owner="kkwang18",
+        repo="open-swe",
+        number=8,
+        opening_head_sha="head-sha",
+        threads=[ThreadLink(thread_id=opening_thread, source=AGENT_OPENED_LINK_SOURCE)],
+    )
+    dispatch = AsyncMock()
+    langgraph = AsyncMock()
+    monkeypatch.setattr(
+        webhook_common,
+        "extract_pr_context",
+        AsyncMock(
+            return_value=(
+                {"owner": "kkwang18", "name": "open-swe"},
+                8,
+                "open-swe/oswe-24-readme-line",
+                "octocat",
+                "https://github.com/kkwang18/open-swe/pull/8",
+                9,
+                None,
+            )
+        ),
+    )
+    monkeypatch.setattr(PullRequest, "get", AsyncMock(return_value=pull_request))
+    monkeypatch.setattr(PullRequest, "link_thread", AsyncMock())
+    monkeypatch.setattr(
+        webhook_common,
+        "get_thread_metadata_safe",
+        AsyncMock(return_value={"source": "linear", "visibility": visibility}),
+    )
+    monkeypatch.setattr(webhook_common, "get_client", lambda **_: langgraph)
+    monkeypatch.setattr(webhook_common, "authorize_github_thread", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        webhook_common, "get_or_resolve_thread_github_token", AsyncMock(return_value="token")
+    )
+    monkeypatch.setattr(webhook_common, "react_to_github_comment", AsyncMock())
+    monkeypatch.setattr(
+        webhook_common,
+        "fetch_pr_comments_since_last_tag",
+        AsyncMock(return_value=[{"type": "pr_comment", "comment_id": 9, "body": "@open-swe hi"}]),
+    )
+    monkeypatch.setattr(webhook_common, "trigger_or_queue_run", dispatch)
+    monkeypatch.setattr(User, "email_for_login", AsyncMock(return_value="octocat@example.com"))
+    monkeypatch.setattr(User, "known_logins", AsyncMock(return_value=frozenset({"octocat"})))
+    monkeypatch.setattr(github_webhooks.postgres, "configured", lambda: False)
+
+    await github_webhooks.process_github_pr_comment(
+        {
+            "action": "created",
+            "sender": {"login": "octocat", "id": 123},
+            "issue": {"number": 8, "pull_request": {}, "user": {"login": "octocat"}},
+            "comment": {
+                "id": 9,
+                "body": "@open-swe what Linear issue is this PR for?",
+                "user": {"login": "octocat"},
+                "created_at": "2026-10-02T14:26:20Z",
+            },
+        },
+        "issue_comment",
+    )
+
+    dispatch.assert_awaited_once()
+    expected = (
+        opening_thread
+        if continues_opening_thread
+        else github_webhooks.pr_comment_thread_id("kkwang18", "open-swe", 8)
+    )
+    assert dispatch.call_args.args[0] == expected
+
+
 def test_process_github_issue_followup_keeps_the_threads_workspace(monkeypatch) -> None:
     """A follow-up lands in the thread's workspace even if the repository is preferred elsewhere."""
     captured: dict[str, object] = {}

@@ -925,6 +925,32 @@ async def is_accepted_commenter(login: str) -> bool:
     return bool(await User.known_logins([login]))
 
 
+async def _opening_thread_for_commenter(
+    repo_config: dict[str, str], pr_number: int | None, github_login: str
+) -> str | None:
+    """The agent thread that opened this PR, when the commenter may continue it.
+
+    A tagged comment then carries on that thread, with the request that led to
+    the PR, instead of starting one of its own; a thread the commenter cannot
+    prompt falls back to the PR's own thread.
+    """
+    owner, name = repo_config.get("owner", ""), repo_config.get("name", "")
+    if not (pr_number and owner and name):
+        return None
+    pull_request = await PullRequest.get(owner, name, pr_number)
+    thread_id = pull_request.agent_thread_id if pull_request is not None else None
+    if thread_id is None:
+        return None
+    metadata = await common.get_thread_metadata_safe(thread_id)
+    if metadata is None:
+        return None
+    if common.thread_is_private(metadata) and not common.thread_is_promptable(
+        metadata, github_login
+    ):
+        return None
+    return thread_id
+
+
 async def untagged_agent_pr_thread_id(payload: dict[str, Any], event_type: str) -> str | None:
     """The agent thread an untagged comment or review on a PR it opened should wake."""
     if event_type not in _UNTAGGED_PR_TRIGGER_EVENTS:
@@ -982,7 +1008,11 @@ async def process_github_pr_comment(
         branch_name,
     )
 
-    thread_id = agent_thread_id or (thread_id_from_branch(branch_name) if branch_name else None)
+    thread_id = (
+        agent_thread_id
+        or (thread_id_from_branch(branch_name) if branch_name else None)
+        or await _opening_thread_for_commenter(repo_config, pr_number, github_login)
+    )
     if not thread_id:
         if not pr_number:
             common.logger.warning(
