@@ -76,6 +76,8 @@ class LinearSessionRef(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str = ""
+    # The workspace's and teams' instructions for agents, from the session's start.
+    guidance: str = ""
 
 
 class GitHubIssueRef(BaseModel):

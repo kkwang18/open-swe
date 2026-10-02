@@ -1321,6 +1321,7 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 slack_by_the_way=_slack_ask_mode(cfg) and bool(cfg.slack_by_the_way_thread_ts),
                 slack_breakout=cfg.slack_breakout is True,
                 linear_session=cfg.linear_session is not None and bool(cfg.linear_session.id),
+                linear_guidance=cfg.linear_session.guidance if cfg.linear_session else "",
                 sandbox_file_downloads=_sandbox_file_downloads_enabled(cfg),
                 continued_from_collaborative=bool(cfg.continued_from_thread_id),
                 local_checkout=bridged,

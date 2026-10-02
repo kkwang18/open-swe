@@ -45,6 +45,7 @@ def _render_source_guidance(
     slack_breakout: bool = False,
     slack_by_the_way: bool = False,
     linear_session: bool = False,
+    linear_guidance: str = "",
 ) -> str:
     if source == "background_task":
         name = "background-task"
@@ -58,6 +59,8 @@ def _render_source_guidance(
         name = "generic"
     if name in {"slack", "schedule"}:
         guidance = prompt(f"system/source-{name}", breakout=slack_breakout, slack=slack_context)
+    elif name == "linear-session":
+        guidance = prompt("system/source-linear-session", guidance=linear_guidance.strip())
     else:
         guidance = prompt(f"system/source-{name}")
     return f"<open_swe_source_context>\n{guidance}\n</open_swe_source_context>"
@@ -130,6 +133,7 @@ def construct_system_prompt(
     slack_breakout: bool = False,
     slack_by_the_way: bool = False,
     linear_session: bool = False,
+    linear_guidance: str = "",
     sandbox_file_downloads: bool = False,
     continued_from_collaborative: bool = False,
     local_checkout: bool = False,
@@ -175,6 +179,7 @@ def construct_system_prompt(
                 slack_breakout,
                 slack_by_the_way,
                 linear_session=linear_session,
+                linear_guidance=linear_guidance,
             ),
         ),
         default_prompt_section=_load_default_prompt(),

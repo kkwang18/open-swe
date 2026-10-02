@@ -44,6 +44,7 @@ class SessionCreated:
     comment_id: str | None
     comment_body: str
     prompt_context: str
+    guidance: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,8 @@ class SessionPrompted:
     body: str
     author: LinearUser
     signal: AgentSignal | None
+    # Linear sends guidance when a session starts; empty means use what it sent then.
+    guidance: str = ""
 
 
 @dataclass(frozen=True)
@@ -108,10 +111,27 @@ class _AgentActivity(BaseModel):
     user: LinearUser
 
 
+class _GuidanceTeam(BaseModel):
+    name: str = ""
+
+
+class _GuidanceOrigin(BaseModel):
+    type: str = ""
+    team: _GuidanceTeam | None = None
+
+
+class GuidanceRule(BaseModel):
+    """Instructions for agents set on the workspace or a team."""
+
+    body: str
+    origin: _GuidanceOrigin
+
+
 class AgentSessionPayload(BaseModel):
     agent_session: _AgentSession = Field(alias="agentSession")
     agent_activity: _AgentActivity | None = Field(None, alias="agentActivity")
     prompt_context: str = Field("", alias="promptContext")
+    guidance: list[GuidanceRule] | None = None
 
 
 class _IssueData(LinearIssue):

@@ -222,3 +222,72 @@ async def add_session_link(session_id: str, label: str, url: str) -> None:
         _SESSION_UPDATE,
         {"id": session_id, "input": {"addedExternalUrls": [{"label": label, "url": url}]}},
     )
+
+
+class _StateType(BaseModel):
+    type: str
+
+
+class _UserRef(BaseModel):
+    id: str
+
+
+class _StateNode(BaseModel):
+    id: str
+    position: float
+
+
+class _StateNodes(BaseModel):
+    nodes: list[_StateNode]
+
+
+class _TeamStates(BaseModel):
+    states: _StateNodes
+
+
+class _IssueProgress(BaseModel):
+    state: _StateType
+    delegate: _UserRef | None = None
+    team: _TeamStates
+
+
+class _IssueProgressData(BaseModel):
+    issue: _IssueProgress
+
+
+_ISSUE_PROGRESS = """
+query IssueProgress($id: String!) {
+  issue(id: $id) {
+    state { type }
+    delegate { id }
+    team { states(filter: { type: { eq: "started" } }) { nodes { id position } } }
+  }
+}
+"""
+
+_ISSUE_UPDATE = """
+mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
+  issueUpdate(id: $id, input: $input) { success }
+}
+"""
+
+# Linear asks agents to leave issues that are already underway or closed where they are.
+_NOT_STARTED = frozenset({"triage", "backlog", "unstarted"})
+
+
+async def start_delegated_issue(issue_id: str) -> bool:
+    """Move an issue delegated to the app to its team's first started status.
+
+    Returns whether it moved.
+    """
+    data = _IssueProgressData.model_validate(
+        await linear_graphql(_ISSUE_PROGRESS, {"id": issue_id})
+    )
+    issue = data.issue
+    if issue.state.type not in _NOT_STARTED or not issue.team.states.nodes:
+        return False
+    if issue.delegate is None or issue.delegate.id != await app_user_id():
+        return False
+    first_started = min(issue.team.states.nodes, key=lambda state: state.position)
+    await linear_graphql(_ISSUE_UPDATE, {"id": issue_id, "input": {"stateId": first_started.id}})
+    return True

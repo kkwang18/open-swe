@@ -14,6 +14,7 @@ from agent.integrations.linear.events import (
     AgentSessionPayload,
     DelegationRemoved,
     Envelope,
+    GuidanceRule,
     IssueUpdatePayload,
     LinearEvent,
     LinearIssue,
@@ -38,6 +39,22 @@ _MENTION_MARKUP = re.compile(r"<user\b[^>]*>([^<]*)</user>")
 
 def _plain_mentions(body: str) -> str:
     return _MENTION_MARKUP.sub(r"@\1", body)
+
+
+# The run gets guidance in its system prompt, so it is left out of the request's context.
+_GUIDANCE_BLOCK = re.compile(r"\s*<guidance>.*?</guidance>", re.DOTALL)
+
+
+def _guidance_text(rules: list[GuidanceRule] | None) -> str:
+    """Linear lists workspace guidance first and the session's own team last."""
+    sections: list[str] = []
+    for rule in rules or []:
+        if not rule.body.strip():
+            continue
+        team = rule.origin.team.name if rule.origin.team else ""
+        source = f"team {team}" if team else "the workspace"
+        sections.append(f"From {source}:\n{rule.body.strip()}")
+    return "\n\n".join(sections)
 
 
 def _utcnow() -> datetime:
@@ -98,6 +115,7 @@ class LinearIntegration:
     ) -> LinearEvent | Ignored:
         payload = AgentSessionPayload.model_validate_json(body)
         session = payload.agent_session
+        guidance = _guidance_text(payload.guidance)
         if action == "created":
             if session.issue is None:
                 return Ignored("session has no issue")
@@ -111,7 +129,12 @@ class LinearIntegration:
                 and session.source_metadata.type == "comment",
                 comment_id=session.comment_id,
                 comment_body=session.comment.body if session.comment else "",
-                prompt_context=payload.prompt_context,
+                prompt_context=(
+                    _GUIDANCE_BLOCK.sub("", payload.prompt_context)
+                    if guidance
+                    else payload.prompt_context
+                ),
+                guidance=guidance,
             )
         if action == "prompted" and payload.agent_activity is not None:
             activity = payload.agent_activity
@@ -124,6 +147,7 @@ class LinearIntegration:
                 body=_plain_mentions(activity.content.body),
                 author=activity.user,
                 signal=activity.signal,
+                guidance=guidance,
             )
         return Ignored(f"agent session {action} is not handled")
 
