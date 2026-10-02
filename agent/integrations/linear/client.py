@@ -291,3 +291,33 @@ async def start_delegated_issue(issue_id: str) -> bool:
     first_started = min(issue.team.states.nodes, key=lambda state: state.position)
     await linear_graphql(_ISSUE_UPDATE, {"id": issue_id, "input": {"stateId": first_started.id}})
     return True
+
+
+class _CreatedSession(BaseModel):
+    id: str
+
+
+class _SessionCreatePayload(BaseModel):
+    agent_session: _CreatedSession = Field(alias="agentSession")
+
+
+class _SessionCreateData(BaseModel):
+    agent_session_create_on_issue: _SessionCreatePayload = Field(alias="agentSessionCreateOnIssue")
+
+
+_SESSION_CREATE_ON_ISSUE = """
+mutation SessionCreateOnIssue($input: AgentSessionCreateOnIssue!) {
+  agentSessionCreateOnIssue(input: $input) { agentSession { id } }
+}
+"""
+
+
+async def create_session_on_issue(issue_id: str, label: str, url: str | None) -> str:
+    """Open a session on the issue as the app; Linear then announces it as a `created` event."""
+    session_input: dict[str, JsonValue] = {"issueId": issue_id}
+    if url:
+        session_input["externalUrls"] = [{"label": label, "url": url}]
+    data = _SessionCreateData.model_validate(
+        await linear_graphql(_SESSION_CREATE_ON_ISSUE, {"input": session_input})
+    )
+    return data.agent_session_create_on_issue.agent_session.id

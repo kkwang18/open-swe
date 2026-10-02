@@ -39,6 +39,7 @@ from agent.integrations.linear.events import (
     SessionCreated,
     SessionPrompted,
 )
+from agent.integrations.linear.outside import is_own_session
 from agent.integrations.linear.session import run_session, run_session_id
 from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef
@@ -114,6 +115,9 @@ async def _report_failure(session_id: str) -> None:
 
 
 async def _start_session(event: SessionCreated) -> None:
+    if event.creator is None and await is_own_session(get_client(), event.issue.id):
+        # The session a run started outside Linear opened for itself; that run reports to it.
+        return
     thread_id = linear_issue_thread_id(event.issue.id)
     await _acknowledge(event.session_id, event.delivery_id, thread_id)
     if await _is_stopped(event.session_id):

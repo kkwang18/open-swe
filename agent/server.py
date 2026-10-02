@@ -1691,7 +1691,11 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         get_thread,
         manage_thread,
         *((start_thread,) if _slack_concierge_run(cfg) else ()),
-        *((ask_with_options,) if cfg.linear_session and cfg.linear_session.id else ()),
+        *(
+            (ask_with_options,)
+            if cfg.source == "linear" and cfg.linear_session and cfg.linear_session.id
+            else ()
+        ),
         manage_baby_sit,
         expedite_pr_approval,
         merge_expedited_pr,
