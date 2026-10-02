@@ -91,7 +91,9 @@ async def create_linear_issue(title: str, description: str, team: str = "") -> d
             return {"success": False, "error": f"{reason} Ask which team.", "teams": names}
         link = await _slack_link(cfg)
         # A run that lost its history may file the same request again; Linear remembers.
-        if existing := await find_open_issue(match.id, title.strip(), link):
+        # Only the thread link ties a match to this conversation: without it, a matching
+        # title may be someone else's request.
+        if link and (existing := await find_open_issue(match.id, title.strip(), link)):
             return {
                 "success": True,
                 "already_existed": True,
