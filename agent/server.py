@@ -94,6 +94,7 @@ from agent.input_messages import (
     person_introduction,
     visible_dynamic_context_hashes,
 )
+from agent.integrations.linear.ask import ask_with_options
 from agent.integrations.linear.middleware import LinearSessionMiddleware
 from agent.integrations.linear.token import linear_app_configured
 from agent.integrations.linear.tools import GROUP_NAME as LINEAR_TOOL_GROUP
@@ -1690,6 +1691,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         get_thread,
         manage_thread,
         *((start_thread,) if _slack_concierge_run(cfg) else ()),
+        *((ask_with_options,) if cfg.linear_session and cfg.linear_session.id else ()),
         manage_baby_sit,
         expedite_pr_approval,
         merge_expedited_pr,

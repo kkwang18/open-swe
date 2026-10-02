@@ -14,15 +14,20 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from pydantic import JsonValue
 
+from agent.integrations.linear.ask import ASK_TOOL
 from agent.integrations.linear.client import add_session_link, post_activity, set_session_plan
-from agent.integrations.linear.session import final_answer, post_final_response
+from agent.integrations.linear.session import (
+    final_answer,
+    post_final_response,
+    post_question_with_options,
+)
 from agent.middleware.message_content import content_to_text
 from agent.middleware.trace import OpenSWEMiddleware
 
 logger = logging.getLogger(__name__)
 
-# Bookkeeping the person watching the session gains nothing from.
-_QUIET_TOOLS = frozenset({"write_todos", "load_integration_tools"})
+# Bookkeeping the person watching the session gains nothing from; a question shows as itself.
+_QUIET_TOOLS = frozenset({"write_todos", "load_integration_tools", ASK_TOOL})
 _PARAMETER_KEYS = ("command", "file_path", "path", "pattern", "query", "url", "description")
 _PARAMETER_LIMIT = 200
 _PLAN_STATUSES = {"pending": "pending", "in_progress": "inProgress", "completed": "completed"}
@@ -50,6 +55,22 @@ def _plan(args: Mapping[str, object]) -> list[JsonValue]:
             status = _PLAN_STATUSES.get(str(todo.get("status")), "pending")
             plan.append({"content": todo["content"], "status": status})
     return plan
+
+
+def _asked_question(result: ToolMessage | Command) -> tuple[str, list[str]] | None:
+    """``(question, options)`` an ``ask_with_options`` call accepted."""
+    if not isinstance(result, ToolMessage):
+        return None
+    try:
+        payload = json.loads(content_to_text(result.content))
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        return None
+    question, options = payload.get("question"), payload.get("options")
+    if not isinstance(question, str) or not isinstance(options, list):
+        return None
+    return question, [option for option in options if isinstance(option, str)]
 
 
 def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str] | None:
@@ -130,7 +151,20 @@ class LinearSessionMiddleware(OpenSWEMiddleware):
         if name == "open_pull_request" and (pr := _opened_pull_request(result)) is not None:
             label, url = pr
             self._enqueue(lambda: add_session_link(self._session_id, label, url))
+        if name == ASK_TOOL and (asked := _asked_question(result)) is not None:
+            self._enqueue_question(*asked)
         return result
+
+    def _enqueue_question(self, question: str, options: list[str]) -> None:
+        ids = _run_ids()
+        if ids is None:
+            return
+        _thread_id, run_id = ids
+
+        async def ask() -> None:
+            await post_question_with_options(self._session_id, run_id, question, options)
+
+        self._enqueue(ask)
 
     async def aafter_agent(self, state: AgentState, runtime: Runtime) -> None:
         del runtime

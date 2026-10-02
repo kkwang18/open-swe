@@ -80,10 +80,45 @@ async def post_final_response(session_id: str, run_id: str, thread_id: str, answ
     """
     kind = "elicitation" if _ends_with_question(answer) else "response"
     content: dict[str, JsonValue] = {"type": kind, "body": answer or _fallback(thread_id)}
+    return await _post_reply(session_id, run_id, content)
+
+
+async def post_question_with_options(
+    session_id: str, run_id: str, question: str, options: list[str]
+) -> bool:
+    """Ask with options as the run's reply; Linear shows the options as buttons.
+
+    It takes the reply's id, so the answer post that closes the run is a duplicate
+    Linear drops, and the session waits for the person's pick.
+    """
+    choices: list[JsonValue] = [{"label": option, "value": option} for option in options]
+    return await _post_reply(
+        session_id,
+        run_id,
+        {"type": "elicitation", "body": question},
+        signal="select",
+        signal_metadata={"options": choices},
+    )
+
+
+async def _post_reply(
+    session_id: str,
+    run_id: str,
+    content: dict[str, JsonValue],
+    *,
+    signal: str | None = None,
+    signal_metadata: dict[str, JsonValue] | None = None,
+) -> bool:
     activity_id = linear_activity_id("reply", run_id)
     for attempt in range(REPLY_ATTEMPTS):
         try:
-            await post_activity(session_id, content, activity_id=activity_id)
+            await post_activity(
+                session_id,
+                content,
+                activity_id=activity_id,
+                signal=signal,
+                signal_metadata=signal_metadata,
+            )
         except Exception:
             logger.warning(
                 "Posting the Linear session response failed",

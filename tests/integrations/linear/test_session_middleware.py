@@ -1,10 +1,12 @@
 import asyncio
+import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent.integrations.linear import middleware as linear_middleware
 from agent.integrations.linear import session as linear_session
+from agent.integrations.linear.ask import ask_with_options
 from agent.integrations.linear.client import linear_activity_id
 
 
@@ -16,7 +18,7 @@ class _Request:
 async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeypatch):
     posted: list[tuple[str, object]] = []
 
-    async def post_activity(session_id, content, *, activity_id=None, ephemeral=False):
+    async def post_activity(session_id, content, *, activity_id=None, **_):
         await asyncio.sleep(0.01 if content["type"] == "action" else 0)
         posted.append((content["type"], activity_id or content.get("parameter")))
 
@@ -82,3 +84,40 @@ async def test_progress_posts_in_order_and_the_answer_closes_the_session(monkeyp
 )
 def test_a_question_in_the_last_paragraph_awaits_the_person(answer, asks):
     assert linear_session._ends_with_question(answer) is asks
+
+
+async def test_a_question_with_options_keeps_the_session_waiting(monkeypatch):
+    # Linear drops a second activity with an id it has seen, as `post_activity` does.
+    posted: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+
+    async def post_activity(session_id, content, *, activity_id=None, **kwargs):
+        if activity_id not in posted:
+            posted[activity_id] = (content, kwargs)
+
+    monkeypatch.setattr(linear_session, "post_activity", post_activity)
+    monkeypatch.setattr(
+        linear_middleware,
+        "get_config",
+        lambda: {"configurable": {"thread_id": "t-1", "run_id": "r-1"}},
+    )
+    middleware = linear_middleware.LinearSessionMiddleware("session-1")
+    args = {"question": "Which approach?", "options": ["Patch it", "Rewrite it"]}
+
+    async def handler(request):
+        result = await ask_with_options(**request.tool_call["args"])
+        return ToolMessage(content=json.dumps(result), tool_call_id=request.tool_call["id"])
+
+    await middleware.awrap_tool_call(_Request("ask_with_options", args), handler)
+    state = {"messages": [HumanMessage(content="fix it"), AIMessage(content="Which approach?")]}
+    await middleware.aafter_agent(state, runtime=None)
+
+    content, kwargs = posted[linear_activity_id("reply", "r-1")]
+    assert content == {"type": "elicitation", "body": "Which approach?"}
+    assert kwargs["signal"] == "select"
+    assert kwargs["signal_metadata"] == {
+        "options": [
+            {"label": "Patch it", "value": "Patch it"},
+            {"label": "Rewrite it", "value": "Rewrite it"},
+        ]
+    }
+    assert len(posted) == 1
