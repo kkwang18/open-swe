@@ -14,11 +14,14 @@ agent run itself.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, TypedDict
 
-from agent.middleware.dynamic_tools import IntegrationGroup
 from agent.run_config import Repo
 from agent.webhooks.event_log import EventRefs
+
+if TYPE_CHECKING:
+    # The webhook routes import this module; the agent stack must stay out of the web app.
+    from agent.middleware.dynamic_tools import IntegrationGroup
 
 IntegrationName = Literal["slack", "github", "linear"]
 

@@ -9,8 +9,6 @@ from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import JsonValue
 
 from agent.integrations.linear.client import linear_activity_id, post_activity
-from agent.middleware.message_content import content_to_text
-from agent.middleware.require_user_reply import turn_tail
 from agent.utils.dashboard_links import dashboard_thread_url
 
 logger = logging.getLogger(__name__)
@@ -20,6 +18,10 @@ REPLY_ATTEMPTS = 3
 
 def final_answer(messages: Sequence[BaseMessage]) -> str:
     """The text of the turn's last assistant message, which is the run's answer."""
+    # Imported here so the web app, which loads this module, stays clear of the agent stack.
+    from agent.middleware.message_content import content_to_text
+    from agent.middleware.require_user_reply import turn_tail
+
     for message in reversed(turn_tail(messages)):
         if isinstance(message, AIMessage):
             text = content_to_text(message.content).strip()
