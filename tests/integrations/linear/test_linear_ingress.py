@@ -173,3 +173,14 @@ def test_an_issue_without_a_description_still_starts_a_session():
     event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
     assert isinstance(event, SessionCreated)
     assert event.issue.description == ""
+
+
+@pytest.mark.parametrize("new_delegate", [None, "another-agent"])
+def test_clearing_or_replacing_the_delegate_is_an_undelegation(new_delegate):
+    payload = _payload("issue_undelegated")
+    previous = payload["updatedFrom"]["delegateId"]
+    payload["data"]["delegateId"] = new_delegate
+    now = _created_at("issue_undelegated")
+    event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
+    assert isinstance(event, DelegationRemoved)
+    assert event.previous_delegate_id == previous

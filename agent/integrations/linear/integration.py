@@ -158,7 +158,8 @@ class LinearIntegration:
         payload = IssueUpdatePayload.model_validate_json(body)
         issue = LinearIssue.model_validate(payload.data.model_dump(by_alias=True))
         previous = payload.updated_from.get("delegateId")
-        if isinstance(previous, str) and payload.data.delegate_id is None:
+        # Cleared, or handed straight to another agent: either way the previous one is off it.
+        if isinstance(previous, str) and payload.data.delegate_id != previous:
             return DelegationRemoved(
                 delivery_id=delivery_id,
                 created_at=created_at,
