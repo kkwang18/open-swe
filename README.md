@@ -52,7 +52,18 @@ flowchart LR
 - **Operate:** Schedule recurring tasks and monitor opted-in PRs with `/baby-sit`, diagnosing failures and rerunning only evidence-backed flaky jobs.
 - **Customize:** Choose models, reasoning effort, instructions, skills, integrations, and sandbox providers.
 
-Start and continue work from the **dashboard**, **GitHub issues and PR conversations**, or **Slack**. In [Linear](docs/INSTALLATION.md#linear), delegate an issue to Open SWE or @mention it: it works as a Linear agent, showing progress in the issue's agent session and replying with its answer and pull request. Cloud coding follow-ups reuse the thread’s context and sandbox; independent threads can run in parallel.
+Start and continue work from the **dashboard**, **GitHub issues and PR conversations**, or **Slack**. In [Linear](#linear), Open SWE works as an agent in the issue's agent session. Cloud coding follow-ups reuse the thread’s context and sandbox; independent threads can run in parallel.
+
+## Linear
+
+Open SWE runs as a [Linear agent](https://linear.app/developers/agents): requests from Linear open an agent session on the issue, and the session is where Open SWE shows its work and answers.
+
+- **Start a session:** delegate an issue to Open SWE, or @mention it in an issue comment. "On it." appears within seconds, and the issue moves to started when work begins. The first time someone asks, the session offers a button to link their Linear account; runs then act as that person, with their own GitHub access.
+- **Threads and sandboxes:** each issue maps to one Open SWE thread, linked from the session, with its own sandbox. Replies in the session and later sessions on the same issue continue that thread, its context, and its sandbox. **Stop** in Linear, or removing Open SWE as the issue's delegate, interrupts the work.
+- **Repository:** a `repo:owner/name` in the request wins, then the repository the issue's thread already uses, the requester's default, and the workspace default. Otherwise Open SWE picks from the workspace's repositories, asking in the session when it is unclear.
+- **What appears in Linear:** tool calls show as session actions and the todo list as its plan. The session ends with the answer, a question with options when Open SWE needs a choice, or an error if the run fails. Opened pull requests are linked on the session. Runs can read Linear and change the issue's status, but do not post comments.
+
+Setup needs a Linear OAuth app with agent session webhooks; see [Linear setup](docs/INSTALLATION.md#linear).
 
 ## How it works
 
