@@ -101,14 +101,18 @@ class EventLogFields(TypedDict):
     refs: EventRefs
 
 
-class WebhookIngress[EventT](Protocol):
-    """The HTTP handler's hooks: local work only, inside the provider's response deadline."""
+class SignedWebhook(Protocol):
+    """The checks every inbound delivery gets before any provider-specific routing."""
 
     name: ClassVar[IntegrationName]
 
     def verify(self, headers: Mapping[str, str], body: bytes) -> bool: ...
 
     def log_fields(self, headers: Mapping[str, str], body: bytes) -> EventLogFields: ...
+
+
+class WebhookIngress[EventT](SignedWebhook, Protocol):
+    """The HTTP handler's hooks: local work only, inside the provider's response deadline."""
 
     def parse(self, headers: Mapping[str, str], body: bytes) -> EventT | Ignored: ...
 

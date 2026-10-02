@@ -13,6 +13,12 @@ from agent.act_as import slack as act_as
 from agent.expedited_review import slack as expedited_review
 from agent.human_review import slack as human_review
 from agent.human_review.posted import watch_post
+from agent.integrations.intake import verify_and_record
+from agent.integrations.slack.ingress import (
+    slack_command_ingress,
+    slack_events_ingress,
+    slack_interactivity_ingress,
+)
 from agent.slack import webhook as service
 from agent.slack.allowed_bots import resolve_allowed_slack_bot
 from agent.slack.ask import (
@@ -60,7 +66,6 @@ from agent.users import User
 from agent.utils.json_types import JsonObject
 from agent.utils.thread_ops import langgraph_client as get_langgraph_client
 from agent.webhooks import common
-from agent.webhooks.event_log import EventLog, EventRefs
 from agent.workspaces.routing import is_kitchen_channel
 
 router = APIRouter()
@@ -96,17 +101,6 @@ def _synthetic_slack_ts() -> str:
 def _bounded_payload_text(label: str, payload: JsonObject) -> str:
     serialized = common.json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return f"{label}\n```json\n{serialized[:8000]}\n```"
-
-
-def _verify_signature(request: common.Request, body: bytes, what: str) -> None:
-    if not common.verify_slack_signature(
-        body=body,
-        timestamp=request.headers.get("X-Slack-Request-Timestamp", ""),
-        signature=request.headers.get("X-Slack-Signature", ""),
-        secret=common.SLACK_SIGNING_SECRET,
-    ):
-        common.logger.warning("Invalid Slack signature", extra={"slack_endpoint": what})
-        raise common.HTTPException(status_code=401, detail="Invalid signature")
 
 
 async def _queue_code_channel_turn(
@@ -287,18 +281,10 @@ async def slack_webhook(
 ) -> WebhookResponse | ChallengeResponse | DuplicateIncidentResponse:
     """Handle Slack Event API webhooks for app mentions."""
     body = await request.body()
-    _verify_signature(request, body, "events")
+    await verify_and_record(slack_events_ingress, request, body)
 
     payload = parse_json_object(body)
     envelope = SlackEventEnvelope.parse(payload) if payload is not None else None
-    await EventLog.record(
-        request,
-        body,
-        "slack",
-        event_type=envelope.kind if envelope else "",
-        delivery_id=envelope.event_id if envelope else "",
-        refs=EventRefs.slack(envelope) if envelope else None,
-    )
     if payload is None:
         common.logger.warning("Failed to parse Slack webhook JSON")
         return {"status": "error", "message": "Invalid JSON"}
@@ -687,18 +673,10 @@ async def slack_command(
 ) -> SlashCommandResponse | Response:
     """Answer a single `/oswe` question, ephemerally and without a Slack thread."""
     body = await request.body()
-    _verify_signature(request, body, "commands")
+    await verify_and_record(slack_command_ingress, request, body)
 
     form = common.parse_qs(body.decode("utf-8"))
     value = lambda key: str((form.get(key) or [""])[0]).strip()  # noqa: E731
-    await EventLog.record(
-        request,
-        body,
-        "slack",
-        event_type=value("command"),
-        delivery_id=value("trigger_id"),
-        refs=EventRefs(slack_user_id=value("user_id"), slack_channel_id=value("channel_id")),
-    )
     channel_id = value("channel_id")
     user_id = value("user_id")
     command = value("command")
@@ -742,18 +720,10 @@ async def slack_code_channel_command(
 ) -> SlashCommandResponse:
     """Handle runtime slash commands registered for a Slack code channel."""
     body = await request.body()
-    _verify_signature(request, body, "code-channel-commands")
+    await verify_and_record(slack_command_ingress, request, body)
 
     form = common.parse_qs(body.decode("utf-8"))
     value = lambda key: str((form.get(key) or [""])[0]).strip()  # noqa: E731
-    await EventLog.record(
-        request,
-        body,
-        "slack",
-        event_type=value("command"),
-        delivery_id=value("trigger_id"),
-        refs=EventRefs(slack_user_id=value("user_id"), slack_channel_id=value("channel_id")),
-    )
     channel_id = value("channel_id")
     user_id = value("user_id")
     command = value("command").removeprefix("/")
@@ -787,24 +757,12 @@ async def slack_interactivity(
 ) -> WebhookResponse | BlockSuggestionResponse | FeedbackResponse:
     """Handle Slack Block Kit interactions."""
     body = await request.body()
-    _verify_signature(request, body, "interactivity")
+    await verify_and_record(slack_interactivity_ingress, request, body)
 
     form = common.parse_qs(body.decode("utf-8"))
     payload_raw = (form.get("payload") or [""])[0]
     payload = parse_json_object(payload_raw.encode("utf-8"))
     interaction = SlackInteraction.parse(payload) if payload is not None else None
-    await EventLog.record(
-        request,
-        body,
-        "slack",
-        event_type=interaction.type if interaction else "",
-        delivery_id=interaction.trigger_id if interaction else "",
-        refs=EventRefs(
-            slack_user_id=interaction.user.id, slack_channel_id=interaction.origin_channel_id
-        )
-        if interaction
-        else None,
-    )
     if payload is None:
         common.logger.warning("Failed to parse Slack interactivity payload")
         return {"status": "error", "message": "Invalid payload"}

@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, HTTPException, Request
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
 
-from agent.integrations.base import Ignored, IntegrationName, WebhookIngress
+from agent.integrations.base import Ignored, IntegrationName, SignedWebhook, WebhookIngress
 from agent.threads.creation import create_lock_thread
 from agent.webhooks.event_log import EventLog
 
@@ -44,6 +44,14 @@ async def claim_event(source: IntegrationName, key: str) -> bool:
     return True
 
 
+async def verify_and_record(webhook: SignedWebhook, request: Request, body: bytes) -> None:
+    """Reject an unsigned delivery with 401, then record it in the event log."""
+    if not webhook.verify(request.headers, body):
+        logger.warning("Rejected integration webhook", extra={"integration": webhook.name})
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    await EventLog.record(request, body, webhook.name, **webhook.log_fields(request.headers, body))
+
+
 async def accept_webhook[EventT](
     ingress: WebhookIngress[EventT],
     request: Request,
@@ -51,10 +59,7 @@ async def accept_webhook[EventT](
     background_tasks: BackgroundTasks,
     handle: Callable[[EventT], Awaitable[None]],
 ) -> dict[str, str]:
-    if not ingress.verify(request.headers, body):
-        logger.warning("Rejected integration webhook", extra={"integration": ingress.name})
-        raise HTTPException(status_code=401, detail="Invalid signature")
-    await EventLog.record(request, body, ingress.name, **ingress.log_fields(request.headers, body))
+    await verify_and_record(ingress, request, body)
     event = ingress.parse(request.headers, body)
     if isinstance(event, Ignored):
         return {"status": "ignored", "reason": event.reason}

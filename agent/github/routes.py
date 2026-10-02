@@ -3,9 +3,10 @@
 from fastapi import APIRouter, Response
 
 from agent.github import webhook as service
+from agent.integrations.github.ingress import github_ingress
+from agent.integrations.intake import verify_and_record
 from agent.schedules import store as schedules
 from agent.webhooks import common
-from agent.webhooks.event_log import EventLog, EventRefs
 from agent.workspaces.routing import WorkspaceLookupError, repo_is_routable
 
 router = APIRouter()
@@ -27,22 +28,10 @@ async def github_webhook(
 ) -> dict[str, str]:
     """Handle GitHub webhooks for issue and PR events that tag @open-swe."""
     body = await request.body()
-
-    signature = request.headers.get("X-Hub-Signature-256", "")
-    if not common.verify_github_signature(body, signature, secret=common.GITHUB_WEBHOOK_SECRET):
-        common.logger.warning("Invalid GitHub webhook signature")
-        raise common.HTTPException(status_code=401, detail="Invalid signature")
+    await verify_and_record(github_ingress, request, body)
 
     event_type = request.headers.get("X-GitHub-Event", "")
     delivery_id = request.headers.get("X-GitHub-Delivery", "")
-    await EventLog.record(
-        request,
-        body,
-        "github",
-        event_type=event_type,
-        delivery_id=delivery_id,
-        refs=EventRefs.github(body),
-    )
     common.logger.info(
         "GitHub webhook received",
         extra={
