@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable, Mapping
 
 from langchain.agents.middleware.types import AgentState
@@ -25,13 +26,17 @@ _QUIET_TOOLS = frozenset({"write_todos", "load_integration_tools"})
 _PARAMETER_KEYS = ("command", "file_path", "path", "pattern", "query", "url", "description")
 _PARAMETER_LIMIT = 200
 _PLAN_STATUSES = {"pending": "pending", "in_progress": "inProgress", "completed": "completed"}
+# Commands start in the repository with `cd <dir> &&`; Linear truncates the line, so the
+# prefix would hide the command itself.
+_CD_PREFIX = re.compile(r"^cd\s+\S+\s*&&\s*")
 
 
 def _parameter(args: Mapping[str, object]) -> str:
     for key in _PARAMETER_KEYS:
         value = args.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()[:_PARAMETER_LIMIT]
+            shown = _CD_PREFIX.sub("", value.strip()) if key == "command" else value.strip()
+            return (shown or value.strip())[:_PARAMETER_LIMIT]
     return json.dumps(args, default=str)[:_PARAMETER_LIMIT]
 
 
