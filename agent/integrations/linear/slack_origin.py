@@ -31,12 +31,18 @@ class SlackOrigin(BaseModel):
     is_dm: bool = False
 
 
-async def record_slack_origin(issue_id: str, origin: SlackOrigin) -> None:
+async def record_slack_origin(issue_id: str, title: str, origin: SlackOrigin) -> str:
+    """Remember the Slack thread on the issue's thread, created now so it can be linked to.
+
+    Returns the issue's thread id; the issue's first run fills in the rest of it.
+    """
     client = get_client()
     thread_id = linear_issue_thread_id(issue_id)
-    # The issue's first run creates its thread later; this only adds to it.
     await client.threads.create(thread_id=thread_id, if_exists="do_nothing")
-    await client.threads.update(thread_id=thread_id, metadata={ORIGIN_KEY: origin.model_dump()})
+    await client.threads.update(
+        thread_id=thread_id, metadata={ORIGIN_KEY: origin.model_dump(), "title": title[:80]}
+    )
+    return thread_id
 
 
 async def announce_pull_request(issue_thread_id: str, label: str, pr_url: str) -> None:
@@ -71,11 +77,9 @@ async def _announce(
         _, error = await post_slack_top_level_message_with_ts(origin.channel_id, text)
         posted = error is None
     else:
+        # Its web link opens the issue's thread, where the work is.
         posted = await post_slack_thread_reply(
-            origin.channel_id,
-            origin.thread_ts,
-            text,
-            agent_thread_id=origin.agent_thread_id or None,
+            origin.channel_id, origin.thread_ts, text, agent_thread_id=issue_thread_id
         )
     if not posted:
         logger.warning(

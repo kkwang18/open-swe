@@ -7,6 +7,7 @@ from langgraph.config import get_config
 from pydantic import JsonValue
 
 from agent.integrations.linear.client import (
+    CreatedIssue,
     LinearGraphQLError,
     LinearTeam,
     create_issue,
@@ -17,6 +18,7 @@ from agent.integrations.linear.slack_origin import SlackOrigin, record_slack_ori
 from agent.run_config import RunConfig
 from agent.slack.client import get_slack_permalink
 from agent.slack.dm import CONCIERGE_TS
+from agent.utils.dashboard_links import dashboard_thread_url
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +53,14 @@ def _requested_from_slack(cfg: RunConfig, link: str) -> str:
     return f"{who} in Slack: {link}" if link else f"{who} in Slack."
 
 
-async def _remember_slack_thread(cfg: RunConfig, issue_id: str) -> None:
-    """Let the Slack thread hear when the issue's pull request opens and when it is done."""
+async def _remember_slack_thread(cfg: RunConfig, issue: CreatedIssue, title: str) -> str | None:
+    """Let the Slack thread hear when the issue's pull request opens and when it is done.
+
+    Returns the Open SWE link to the issue's thread, where its work will happen.
+    """
     slack = cfg.slack_thread
     if slack is None or not slack.channel_id or not slack.thread_ts:
-        return
+        return None
     context = slack.channel_context
     origin = SlackOrigin(
         channel_id=slack.channel_id,
@@ -65,9 +70,11 @@ async def _remember_slack_thread(cfg: RunConfig, issue_id: str) -> None:
         is_dm=context is not None and context.is_im is True,
     )
     try:
-        await record_slack_origin(issue_id, origin)
+        thread_id = await record_slack_origin(issue.id, f"{issue.identifier}: {title}", origin)
     except Exception:
         logger.warning("Recording a Linear issue's Slack thread failed", exc_info=True)
+        return None
+    return dashboard_thread_url(thread_id)
 
 
 async def create_linear_issue(title: str, description: str, team: str = "") -> dict[str, JsonValue]:
@@ -99,14 +106,18 @@ async def create_linear_issue(title: str, description: str, team: str = "") -> d
     except (LinearGraphQLError, httpx.HTTPError) as exc:
         logger.warning("Creating a Linear issue failed", exc_info=True)
         return {"success": False, "error": f"Linear refused the request: {exc}"}
-    await _remember_slack_thread(cfg, issue.id)
-    return {
+    work_url = await _remember_slack_thread(cfg, issue, title.strip())
+    result: dict[str, JsonValue] = {
         "success": True,
         "identifier": issue.identifier,
         "url": issue.url,
         "team": match.name,
         "next_step": (
-            "Share the link; delegating the issue to Open SWE in Linear starts work, and this "
-            "thread hears when its pull request opens and when it is done."
+            "Share the issue link, and the Open SWE link if there is one, where its work will "
+            "show; delegating the issue to Open SWE in Linear starts work, and this thread hears "
+            "when its pull request opens and when it is done."
         ),
     }
+    if work_url:
+        result["open_swe_url"] = work_url
+    return result

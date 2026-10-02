@@ -20,8 +20,9 @@ async def test_issue_from_slack_needs_a_team_and_credits_the_requester(monkeypat
             id="issue-7", identifier="ENG-7", url="https://linear.app/acme/issue/ENG-7"
         )
 
-    async def record_slack_origin(issue_id, origin):
+    async def record_slack_origin(issue_id, title, origin):
         origins.append((issue_id, origin.channel_id, origin.thread_ts))
+        return "issue-thread"
 
     slack_thread = {
         "channel_id": "C1",
