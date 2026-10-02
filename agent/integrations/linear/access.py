@@ -13,6 +13,8 @@ from fastapi import HTTPException
 
 from agent.dashboard.repo_access import require_repo_access_for_user
 from agent.integrations.base import Actor, Denied, PendingQuestion, SelectOption
+from agent.integrations.gitlab.client import link_url as gitlab_link_url
+from agent.integrations.gitlab.refs import gitlab_repo_config, is_gitlab_repo, repo_full_name
 from agent.integrations.linear.client import is_guest, issue_creator, suggest_repositories
 from agent.integrations.linear.events import LinearIssue, LinearUser
 from agent.integrations.linear.link import link_url
@@ -72,10 +74,12 @@ async def resolve_actor(
 
 
 def _full_name(repo: RepoConfig) -> str:
-    return f"{repo['owner']}/{repo['name']}"
+    return repo_full_name(repo)
 
 
 def _parse_full_name(full_name: str) -> RepoConfig | None:
+    if (gitlab := gitlab_repo_config(full_name)) is not None:
+        return gitlab
     owner, _, name = full_name.strip().partition("/")
     return {"owner": owner, "name": name} if owner and name and "/" not in name else None
 
@@ -83,20 +87,29 @@ def _parse_full_name(full_name: str) -> RepoConfig | None:
 def _thread_repo(metadata: Mapping[str, object]) -> RepoConfig | None:
     repo = metadata.get("repo")
     if isinstance(repo, Mapping) and repo.get("owner") and repo.get("name"):
-        return {"owner": str(repo["owner"]), "name": str(repo["name"])}
+        config = {"owner": str(repo["owner"]), "name": str(repo["name"])}
+        if is_gitlab_repo(repo):
+            # The thread works on a GitLab project, not a GitHub namesake.
+            config["host"] = "gitlab"
+        return config
     return None
 
 
 async def check_repo(repo: RepoConfig, actor: Actor) -> RepoConfig | Denied:
     """Allowlisted, routed to a workspace, and reachable with the person's own GitHub access."""
     full_name = _full_name(repo)
-    if not common.is_repo_allowed(repo):
+    gitlab = is_gitlab_repo(repo)
+    # The GitHub allowlists name GitHub owners; a GitLab project is bounded by the bot's memberships.
+    if not gitlab and not common.is_repo_allowed(repo):
         return Denied(f"`{full_name}` isn't one of the repositories Open SWE may work in.")
-    if not await repo_is_routable(repo["owner"], repo["name"]):
+    owner, _, name = full_name.rpartition("/")
+    if not await repo_is_routable(owner, name):
         return Denied(f"`{full_name}` isn't routed to an Open SWE workspace.")
     try:
         await require_repo_access_for_user(actor.github_login, full_name)
     except HTTPException as exc:
+        if gitlab and exc.status_code in (403, 503):
+            return Denied(gitlab_denial(exc.status_code, full_name))
         if exc.status_code == 401:
             return Denied(
                 f"Sign in to Open SWE again so I can check your GitHub access to `{full_name}`."
@@ -210,3 +223,13 @@ def interpret_answer(options: Sequence[SelectOption], answer: str) -> SelectOpti
         or option.label.lower().rsplit("/", 1)[-1] in text.split()
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+def gitlab_denial(status_code: int, full_name: str) -> str:
+    if status_code == 503:
+        return f"I couldn't check your GitLab access to `{full_name}`. Try again in a minute."
+    # The link URL lets a person fix the commonest cause from the session itself.
+    return (
+        f"You need Developer access to `{full_name}` on GitLab, through a linked GitLab "
+        f"account. Link yours at {gitlab_link_url()} if you haven't, then ask again."
+    )

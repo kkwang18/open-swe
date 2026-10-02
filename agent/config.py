@@ -306,6 +306,11 @@ ENV.var(
     secret=True,
 )
 ENV.var(
+    "GITLAB_OAUTH_CLIENT_ID",
+    "GitLab OAuth application id (read_user scope), for linking people's GitLab accounts.",
+)
+ENV.var("GITLAB_OAUTH_CLIENT_SECRET", "GitLab OAuth application secret.", secret=True)
+ENV.var(
     "GITLAB_WEBHOOK_SECRET",
     "The GitLab webhook's signing token (whsec_...) or legacy secret token.",
     secret=True,

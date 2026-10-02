@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from agent.integrations.gitlab.client import GitLabAPIError, bot_user, gitlab_host
-from agent.integrations.gitlab.merge_requests import gitlab_project_for
+from agent.integrations.gitlab.project import run_gitlab_project
 from agent.run_config import RunConfig
 from agent.utils.authorship import CollaboratorIdentity
 
@@ -13,10 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 def gitlab_clone_url(cfg: RunConfig) -> str:
-    """The HTTPS clone URL when the run's repository is its GitLab project, else empty."""
-    if cfg.repo is None:
-        return ""
-    project = gitlab_project_for(cfg.gitlab, cfg.repo.owner, cfg.repo.name)
+    """The HTTPS clone URL when the run's repository is a GitLab project, else empty."""
+    project = run_gitlab_project(cfg)
     if project is None or not project.project_url:
         return ""
     return f"{project.project_url.rstrip('/')}.git"

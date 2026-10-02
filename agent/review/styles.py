@@ -27,7 +27,11 @@ TERMINAL_RUN_FAILURES = frozenset({"error", "failed", "timeout", "interrupted", 
 
 
 def normalize_repo_full_name(raw: str) -> str:
-    """Normalize user input to ``owner/repo``."""
+    """Normalize user input to ``owner/repo``, or a GitLab project to ``host/group/project``."""
+    from agent.integrations.gitlab.refs import gitlab_full_name, gitlab_project_path  # noqa: PLC0415
+
+    if (gitlab_path := gitlab_project_path(raw)) is not None:
+        return gitlab_full_name(gitlab_path)
     v = raw.strip()
     for prefix in ("https://github.com/", "http://github.com/", "github.com/"):
         if v.lower().startswith(prefix):

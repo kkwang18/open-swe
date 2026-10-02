@@ -13,6 +13,7 @@ from agent.config import ENV
 from agent.dashboard.deps import ADMIN_DEP, SESSION_DEP, session_is_admin
 from agent.dashboard.user_preferences import get_user_preferences
 from agent.github.pull_request_checks import PullRequestState
+from agent.review.styles import normalize_repo_full_name
 from agent.threads import terminal
 from agent.threads.diffs import (
     get_dashboard_thread_branch_diff,
@@ -182,10 +183,11 @@ async def api_list_threads_page(
     if repo and ownerless:
         raise HTTPException(400, "repo and ownerless are mutually exclusive")
     if repo:
-        owner, separator, name = repo.strip().partition("/")
-        if not separator or not owner or not name or "/" in name:
-            raise HTTPException(400, "repo must be owner/name")
-        repo = f"{owner}/{name}"
+        # GitHub's `owner/name`, or a GitLab project's host-qualified path.
+        try:
+            repo = normalize_repo_full_name(repo)
+        except ValueError as exc:
+            raise HTTPException(400, "repo must be owner/name") from exc
     return await list_dashboard_threads_page(
         session["sub"],
         email=session.get("email"),

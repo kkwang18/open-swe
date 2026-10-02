@@ -12,6 +12,7 @@ from agent.dashboard.options import (
 )
 from agent.dashboard.profiles import PROFILES_NAMESPACE
 from agent.dashboard.workspace_settings import get_workspace_settings
+from agent.integrations.gitlab.refs import gitlab_repo_config
 from agent.store import get_value
 from agent.users import User
 
@@ -41,6 +42,8 @@ async def get_profile_default_repo(login: str | None) -> dict[str, str] | None:
     default_repo = profile.get("default_repo")
     if not isinstance(default_repo, str):
         return None
+    if (gitlab := gitlab_repo_config(default_repo)) is not None:
+        return gitlab
     parts = default_repo.strip().split("/", 1)
     if len(parts) != 2:
         return None

@@ -160,24 +160,40 @@ def test_a_marker_naming_a_thread_on_another_project_is_not_followed(
     assert thread_id == gitlab_merge_request_thread_id(HOST, 42, 4)
 
 
+class _LinkedPerson:
+    github_login = "grace"
+
+
 @pytest.mark.parametrize(
-    ("email", "listed_for", "requester"),
-    [("ada@acme.com", "ada@acme.com", ["ada"]), ("", "", []), ("unavailable", "", [])],
+    ("linked", "email", "listed_for", "requester"),
+    [
+        (True, "", "grace", ["grace"]),
+        (False, "ada@acme.com", "ada", ["ada"]),
+        (False, "", "", []),
+        (False, "unavailable", "", []),
+    ],
+    ids=["linked account", "matching public email", "no email", "email lookup fails"],
 )
-def test_the_requester_with_a_matching_public_email_is_listed_and_may_follow_up(
+def test_the_requesters_open_swe_account_is_listed_and_may_follow_up(
     gitlab: _GitLab,
     dispatched: list[tuple[str, dict[str, Any]]],
     monkeypatch: pytest.MonkeyPatch,
+    linked: bool,
     email: str,
     listed_for: str,
     requester: list[str],
 ) -> None:
     gitlab.email = email
-    emails: list[str] = []
+    listed: list[str] = []
     recorded: list[str] = []
 
-    async def upsert(*_: object, user_email: str = "", **__: object) -> None:
-        emails.append(user_email)
+    async def upsert(
+        *_: object, github_login: str = "", user_email: str = "", **__: object
+    ) -> None:
+        listed.append(github_login or user_email)
+
+    async def for_identity(provider: str, external_id: str) -> _LinkedPerson | None:
+        return _LinkedPerson() if linked and (provider, external_id) == ("gitlab", "7") else None
 
     async def login_for_email(address: str) -> str | None:
         return "ada" if address == "ada@acme.com" else None
@@ -186,12 +202,13 @@ def test_the_requester_with_a_matching_public_email_is_listed_and_may_follow_up(
         recorded.append(login)
 
     monkeypatch.setattr(common, "upsert_agent_thread_metadata", upsert)
+    monkeypatch.setattr(worker.User, "for_identity", for_identity)
     monkeypatch.setattr(worker.User, "login_for_email", login_for_email)
     monkeypatch.setattr(worker, "record_requester", record_requester)
 
     asyncio.run(worker.process_gitlab_event(_mention()))
 
-    assert emails == [listed_for]
+    assert listed == [listed_for]
     assert recorded == requester
     [(_, configurable)] = dispatched
     # The run itself still acts as the bot: no sender identity is added to it.

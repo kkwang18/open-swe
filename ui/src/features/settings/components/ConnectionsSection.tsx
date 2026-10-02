@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { IoLogoSlack } from "react-icons/io5"
-import { SiNotion } from "react-icons/si"
+import { SiGitlab, SiNotion } from "react-icons/si"
 
 import type { NotionCredentialStatus, SessionUser } from "@/lib/api"
 import { SettingsRow, SettingsSection } from "@/components/AppShell"
 import { Button } from "@/components/ui/button"
-import { api, connectService } from "@/lib/api"
+import { api, connectService, linkGitLab } from "@/lib/api"
 import { optimisticUpdate } from "@/lib/optimistic"
 import { cn } from "@/lib/utils"
 
@@ -73,6 +73,42 @@ function SlackRow({ user }: { user: SessionUser }) {
               Sign in with Slack unavailable
             </span>
           )}
+        </div>
+      }
+    />
+  )
+}
+
+function GitLabRow({ user }: { user: SessionUser }) {
+  const [linking, setLinking] = useState(false)
+  const username = user.gitlab_username ?? null
+  const connected = !!username
+
+  const link = () => {
+    setLinking(true)
+    linkGitLab()
+  }
+
+  return (
+    <SettingsRow
+      label="GitLab"
+      description={
+        connected
+          ? `Linked to @${username}. Open SWE checks this account's project access before working on GitLab for you.`
+          : "Link your GitLab account so you can ask Open SWE to work on GitLab projects from Slack, Linear and here."
+      }
+      control={
+        <div className="flex items-center gap-2">
+          <StatusPill connected={connected} />
+          <Button
+            size="sm"
+            variant={connected ? "outline" : "default"}
+            onClick={link}
+            disabled={linking}
+          >
+            <SiGitlab className="size-4" />
+            {linking ? "Redirecting…" : connected ? "Relink" : "Link"}
+          </Button>
         </div>
       }
     />
@@ -149,6 +185,7 @@ export function ConnectionsSection({ user }: { user: SessionUser }) {
       description="Accounts and credentials Open SWE can use on your behalf. Workspace MCP tools configured by an admin are shared with everyone."
     >
       <SlackRow user={user} />
+      {user.gitlab_linking_enabled ? <GitLabRow user={user} /> : null}
       <NotionRow />
     </SettingsSection>
   )

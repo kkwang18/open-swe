@@ -39,7 +39,7 @@ from agent.utils.json_types import JsonObject
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["github", "slack", "linear"]
+Provider = Literal["github", "slack", "linear", "gitlab"]
 
 
 class UserIdentity(Base):
@@ -85,6 +85,16 @@ class User(Base):
     @property
     def slack_user_id(self) -> str:
         return self._identity_field("slack", "external_id")
+
+    @property
+    def gitlab_username(self) -> str:
+        """The linked GitLab account's username, or ``""`` when none is linked."""
+        return self._identity_field("gitlab", "login")
+
+    @property
+    def gitlab_user_id(self) -> str:
+        """The linked GitLab account's numeric id, or ``""`` when none is linked."""
+        return self._identity_field("gitlab", "external_id")
 
     @property
     def email(self) -> str:

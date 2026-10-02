@@ -7,6 +7,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from agent.config import ENV
 from agent.integrations.gitlab.events import GitLabUser, NoteableKind
+from agent.utils.dashboard_links import dashboard_api_base_url
 
 DEFAULT_URL = "https://gitlab.com"
 # GitLab's access levels; Developer may push to unprotected branches and open MRs.
@@ -28,6 +29,23 @@ class GitLabAPIError(RuntimeError):
 
 def gitlab_configured() -> bool:
     return ENV.GITLAB_TOKEN.is_set() and ENV.GITLAB_WEBHOOK_SECRET.is_set()
+
+
+def gitlab_linking_configured() -> bool:
+    """Whether people can link GitLab accounts, through the GitLab OAuth application."""
+    return (
+        gitlab_configured()
+        and ENV.GITLAB_OAUTH_CLIENT_ID.is_set()
+        and ENV.GITLAB_OAUTH_CLIENT_SECRET.is_set()
+    )
+
+
+LINK_PATH = "/dashboard/api/integrations/gitlab/link"
+
+
+def link_url() -> str:
+    """Where a person goes to link their GitLab account."""
+    return f"{dashboard_api_base_url().rstrip('/')}{LINK_PATH}"
 
 
 def gitlab_url() -> str:
@@ -225,3 +243,48 @@ async def create_merge_request(
         )
     _raise_for(response)
     return MergeRequest.model_validate_json(response.content)
+
+
+class Project(BaseModel):
+    id: int
+    path_with_namespace: str
+    web_url: str
+    default_branch: str = ""
+
+
+async def get_project(project: int | str) -> Project:
+    """The project by numeric id or by its full path."""
+    ref = str(project).replace("/", "%2F")
+    async with _client() as client:
+        response = await client.get(f"/projects/{ref}")
+    _raise_for(response)
+    return Project.model_validate_json(response.content)
+
+
+class BotProject(BaseModel):
+    id: int
+    path_with_namespace: str
+    visibility: str = "private"
+    archived: bool = False
+
+
+_BOT_PROJECTS = TypeAdapter(list[BotProject])
+# A picker lists a page of the bot's projects; more than that wants a search box.
+MAX_BOT_PROJECTS = 100
+
+
+async def bot_projects() -> list[BotProject]:
+    """The projects the bot is a member of, most recently active first."""
+    async with _client() as client:
+        response = await client.get(
+            "/projects",
+            params={
+                "membership": "true",
+                "archived": "false",
+                "order_by": "last_activity_at",
+                "per_page": MAX_BOT_PROJECTS,
+                "simple": "true",
+            },
+        )
+    _raise_for(response)
+    return _BOT_PROJECTS.validate_json(response.content)

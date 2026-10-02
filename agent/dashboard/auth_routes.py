@@ -44,6 +44,7 @@ from agent.dashboard.profiles import (
 )
 from agent.dashboard.user_preferences import get_user_preferences
 from agent.database import postgres
+from agent.integrations.gitlab.client import gitlab_linking_configured
 from agent.slack.oauth import slack_base_url, slack_oauth_configured
 from agent.users import User
 from agent.utils.build_info import build_info
@@ -254,12 +255,14 @@ async def me(session: dict[str, Any] = SESSION_DEP) -> dict[str, Any]:
         "avatar_url": session.get("avatar_url"),
         "user_id": session.get("user_id") or (str(user.id) if user else None),
         "slack_user_id": (user.slack_user_id or None) if user else None,
+        "gitlab_username": (user.gitlab_username or None) if user else None,
         "is_admin": session_is_admin(session),
         "follow_up_behavior": preferences["follow_up_behavior"],
         # Whether new threads are stamped `transcript: v2` (`agent/threads/runs.py`),
         # so the thread the UI seeds after `run.start` can carry the same stamp.
         "transcript_recording": postgres.configured(),
         "slack_oauth_enabled": slack_oauth_configured(),
+        "gitlab_linking_enabled": gitlab_linking_configured(),
         "api_base_url": dashboard_api_base_url(),
         "slack_base_url": slack_base_url(),
         "build_info": build_info(),

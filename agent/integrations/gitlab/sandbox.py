@@ -8,6 +8,7 @@ from langgraph.config import get_config
 from agent.config import ENV
 from agent.integrations.gitlab.access import gitlab_access_allowed
 from agent.integrations.gitlab.client import gitlab_host
+from agent.integrations.gitlab.project import run_gitlab_project
 from agent.run_config import RunConfig
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ async def gitlab_proxy_rule(thread_id: str | None) -> dict[str, object] | None:
     if not thread_id or not token or not host:
         return None
     run = _current_run()
-    if run is None or run.thread_id != thread_id or run.gitlab is None or run.gitlab.host != host:
+    if run is None or run.thread_id != thread_id or run_gitlab_project(run) is None:
         return None
     allowed = await gitlab_access_allowed(run)
     logger.info(

@@ -14,6 +14,8 @@ from agent.github.repo_cache import (
     write_cached_repos,
 )
 from agent.github.repo_merge_methods import RepositoryMergeMethods, repository_merge_methods
+from agent.integrations.gitlab.client import gitlab_configured
+from agent.integrations.gitlab.projects import pickable_projects
 
 router = APIRouter(tags=["github"])
 
@@ -39,6 +41,8 @@ async def _build_repo_payload(login: str) -> dict[str, Any]:
             if r.get("full_name")
         ],
     }
+    if gitlab_configured():
+        payload["repositories"].extend(await pickable_projects(login))
     await write_cached_repos(login, payload)
     return payload
 
