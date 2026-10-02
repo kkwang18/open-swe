@@ -352,8 +352,13 @@ async def _linear_session_of(thread_id: str, run_id: str | None) -> str | None:
         return None
 
 
-async def _settle_linear_session(thread: object, thread_id: str, run_id: str) -> None:
+async def _settle_linear_session(
+    thread: object, thread_id: str, run_id: str, metadata: dict[str, Any]
+) -> None:
     """Close the run's Linear session if the run itself could not; a repeat is a no-op."""
+    # Only a Linear issue's thread has sessions; others need no lookup of the run.
+    if SourceContext.from_metadata(metadata).linear_issue is None:
+        return
     session_id = await _linear_session_of(thread_id, run_id)
     if session_id is None:
         return
@@ -387,7 +392,7 @@ async def _handle_successful_run(
         return await turns.handle_run_completion(thread_id, run_id, "success")
     if metadata.get("kind") == REVIEWER_THREAD_KIND:
         return {"status": "ignored", "reason": "not an agent Slack run"}
-    await _settle_linear_session(thread, thread_id, run_id)
+    await _settle_linear_session(thread, thread_id, run_id, metadata)
     await _settle_code_channel_session(client, thread_id, metadata)
     await sync_slack_background_status(client, thread_id)
     payload_metadata = payload.get("metadata")

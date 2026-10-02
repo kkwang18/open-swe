@@ -219,3 +219,35 @@ async def test_completion_waits_for_running_background_tasks(monkeypatch, status
     monkeypatch.setattr(slack_thinking, "set_slack_thread_status", set_status)
     await completion.handle_run_completion({"thread_id": "t1", "run_id": "run-1", "status": status})
     assert set_status.await_args.args == ("C1", "123.45", "Waiting for background tasks…")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("linear_issue_thread", [False, True])
+async def test_only_a_linear_issue_thread_looks_up_its_run_for_a_session(
+    monkeypatch: pytest.MonkeyPatch, linear_issue_thread: bool
+) -> None:
+    metadata = (
+        {"source": "linear", "source_context": {"linear_issue": {"id": "issue-1"}}}
+        if linear_issue_thread
+        else _slack_metadata()
+    )
+    looked_up: list[str] = []
+
+    class Runs:
+        async def get(self, thread_id: str, run_id: str) -> dict[str, Any]:
+            looked_up.append(run_id)
+            configurable = {"linear_session": {"id": "session-1"}}
+            return {"run_id": run_id, "kwargs": {"config": {"configurable": configurable}}}
+
+    class Client(_FakeClient):
+        runs = Runs()
+
+    client = Client(metadata)
+    replies = AsyncMock(return_value=True)
+    monkeypatch.setattr(completion, "langgraph_client", lambda: client)
+    monkeypatch.setattr(completion, "post_final_response", replies)
+
+    await completion._settle_linear_session(await client.threads.get("t1"), "t1", "run-1", metadata)
+
+    assert looked_up == (["run-1"] if linear_issue_thread else [])
+    assert replies.await_count == (1 if linear_issue_thread else 0)
