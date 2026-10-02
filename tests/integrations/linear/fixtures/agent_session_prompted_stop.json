@@ -1,0 +1,97 @@
+{
+  "action": "prompted",
+  "agentActivity": {
+    "agentSessionId": "00000000-0000-4000-8000-000000000021",
+    "archivedAt": null,
+    "content": {
+      "body": "stop",
+      "type": "prompt"
+    },
+    "createdAt": "2026-10-01T21:00:00.925Z",
+    "ephemeral": false,
+    "executionSkippedReason": null,
+    "id": "00000000-0000-4000-8000-000000000022",
+    "pushSummary": null,
+    "queued": false,
+    "sentAt": null,
+    "signal": "stop",
+    "signalMetadata": null,
+    "sourceCommentId": null,
+    "sourceMetadata": null,
+    "updatedAt": "2026-10-01T21:00:00.925Z",
+    "user": {
+      "avatarUrl": "https://example.com/avatar.png",
+      "email": "test.user@example.com",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Test User",
+      "url": "https://linear.app/acme/profiles/test-user"
+    },
+    "userId": "00000000-0000-4000-8000-000000000004"
+  },
+  "agentSession": {
+    "appUserId": "00000000-0000-4000-8000-000000000001",
+    "archivedAt": null,
+    "comment": {
+      "body": "@openswe summarize ticket",
+      "id": "00000000-0000-4000-8000-000000000015",
+      "issueId": "00000000-0000-4000-8000-000000000012",
+      "userId": "00000000-0000-4000-8000-000000000004"
+    },
+    "commentId": "00000000-0000-4000-8000-000000000015",
+    "context": [],
+    "createdAt": "2026-10-01T20:59:13.693Z",
+    "creator": {
+      "avatarUrl": "https://example.com/avatar.png",
+      "email": "test.user@example.com",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Test User",
+      "url": "https://linear.app/acme/profiles/test-user"
+    },
+    "creatorId": "00000000-0000-4000-8000-000000000004",
+    "dismissedAt": null,
+    "dismissedById": null,
+    "endedAt": null,
+    "externalLink": null,
+    "externalUrls": [],
+    "id": "00000000-0000-4000-8000-000000000021",
+    "issue": {
+      "description": "**Scope**\n`agent/integrations/` protocol and types, registry, `LinearSessionRef` on `RunConfig` and `SourceContext`.\n\n**Done when**\n`make typecheck` passes; no behaviour change.\n\nReferences: [Design](<https://example.com/doc>) \u00b7 [Work plan and success metrics](<https://example.com/doc>)",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "identifier": "OSWE-7",
+      "team": {
+        "id": "00000000-0000-4000-8000-000000000008",
+        "key": "OSWE",
+        "name": "open-swe-linear-integration"
+      },
+      "teamId": "00000000-0000-4000-8000-000000000008",
+      "title": "2. Integration interface and refs",
+      "url": "https://linear.app/acme/issue/OSWE-7/2-integration-interface-and-refs"
+    },
+    "issueId": "00000000-0000-4000-8000-000000000012",
+    "modelSelection": null,
+    "organizationId": "00000000-0000-4000-8000-000000000009",
+    "plan": null,
+    "pullRequestId": null,
+    "slugId": "3a58221b2a06f",
+    "sourceCommentId": null,
+    "sourceMetadata": {
+      "agentSessionMetadata": {
+        "sourceCommentId": "00000000-0000-4000-8000-000000000015"
+      },
+      "type": "comment"
+    },
+    "startedAt": "2026-10-01T20:59:53.770Z",
+    "status": "stopping",
+    "summary": "Summarize Integration Interface Refs Ticket",
+    "updatedAt": "2026-10-01T21:00:00.975Z",
+    "url": "https://linear.app/acme/agent-session/00000000-0000-4000-8000-000000000021",
+    "workspaceDiff": null
+  },
+  "appUserId": "00000000-0000-4000-8000-000000000001",
+  "createdAt": "2026-10-01T21:00:01.276Z",
+  "oauthClientId": "test-oauth-client-id",
+  "organizationId": "00000000-0000-4000-8000-000000000009",
+  "type": "AgentSessionEvent",
+  "webhookId": "00000000-0000-4000-8000-000000000010",
+  "webhookTimestamp": 1790888401373
+}

@@ -18,7 +18,7 @@ from agent.input_messages import (
     system_introduction,
 )
 from agent.prompts import prompt
-from agent.source_context import SourceContext
+from agent.source_context import LinearSessionRef, SourceContext
 from agent.thread_ids import linear_issue_thread_id
 from agent.users import User
 from agent.webhooks import common
@@ -35,13 +35,22 @@ def _linear_person(author: dict[str, Any]) -> PersonIdentity:
 
 
 async def process_linear_issue(  # noqa: PLR0912, PLR0915
-    issue_data: dict[str, Any], repo_config: dict[str, str]
+    issue_data: dict[str, Any],
+    repo_config: dict[str, str],
+    *,
+    linear_session: LinearSessionRef | None = None,
+    github_login: str | None = None,
+    prompt_context: str = "",
 ) -> None:
     """Process a Linear issue by creating a new LangGraph thread and run.
 
     Args:
         issue_data: The Linear issue data from webhook (basic info only).
         repo_config: The repo configuration with owner and name.
+        linear_session: The agent session the run reports to, when one started it.
+        github_login: The requester's already-resolved login, instead of matching email.
+        prompt_context: Linear's prepared context for a new agent session, used in place
+            of the issue's title and description.
     """
     issue_id = issue_data.get("id", "")
     common.logger.info(
@@ -77,7 +86,9 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
     title = full_issue.get("title", "No title")
     description = full_issue.get("description") or "No description"
     image_urls: list[str] = []
-    description_image_urls = common.extract_image_urls(description)
+    # A later message in a session continues a thread that already has the issue.
+    session_reply = linear_session is not None and not prompt_context
+    description_image_urls = [] if session_reply else common.extract_image_urls(description)
     if description_image_urls:
         image_urls.extend(description_image_urls)
         common.logger.debug(
@@ -167,16 +178,36 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     identifier = full_issue.get("identifier", "") or issue_data.get("identifier", "")
     ticket_url = full_issue.get("url", "") or issue_data.get("url", "")
-    issue_prompt = prompt(
-        "runs/linear-issue",
-        repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
-        title=title,
-        triggered_by=user_name,
-        identifier=identifier,
-        issue_id=issue_id,
-        ticket_url=ticket_url,
-        description=description,
-    )
+    repository = f"{repo_config.get('owner')}/{repo_config.get('name')}"
+    if prompt_context:
+        issue_prompt = prompt(
+            "runs/linear-session",
+            repository=repository,
+            triggered_by=user_name,
+            identifier=identifier,
+            issue_id=issue_id,
+            ticket_url=ticket_url,
+            prompt_context=prompt_context,
+        )
+    elif session_reply:
+        issue_prompt = prompt(
+            "runs/linear-session-reply",
+            repository=repository,
+            identifier=identifier,
+            title=title,
+            ticket_url=ticket_url,
+        )
+    else:
+        issue_prompt = prompt(
+            "runs/linear-issue",
+            repository=repository,
+            title=title,
+            triggered_by=user_name,
+            identifier=identifier,
+            issue_id=issue_id,
+            ticket_url=ticket_url,
+            description=description,
+        )
     description_blocks: list[dict[str, Any]] = [
         cast(dict[str, Any], create_text_block(issue_prompt))
     ]
@@ -184,7 +215,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     # Resolve the GitHub login from the Linear email the same way Slack does, so
     # PRs open *as the triggering user* and the thread is tagged for the dashboard.
-    mapped_login = await User.login_for_email(user_email) if user_email else None
+    mapped_login = github_login or (await User.login_for_email(user_email) if user_email else None)
     # A follow-up stays in its thread's workspace; a new issue lands in the
     # repository's preferred one. Either way its default model and Fable flag
     # are the ones the vision fallback checks.
@@ -251,6 +282,11 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     configurable["workspace"] = workspace
     configurable["environment"] = workspace
+    source_context: dict[str, Any] = {"linear_issue": configurable["linear_issue"]}
+    if linear_session is not None:
+        # On the run only: the thread outlives the session, and runs started from the
+        # dashboard copy the thread's source context.
+        configurable["linear_session"] = linear_session.model_dump(mode="json")
 
     await common.upsert_agent_thread_metadata(
         thread_id,
@@ -259,7 +295,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
         github_login=mapped_login or "",
         user_email=user_email or "",
         title=title or identifier or "Linear issue",
-        source_context=SourceContext.parse({"linear_issue": configurable["linear_issue"]}),
+        source_context=SourceContext.parse(source_context),
         workspace=workspace,
     )
 

@@ -1,0 +1,82 @@
+{
+  "action": "update",
+  "actor": {
+    "avatarUrl": "https://example.com/avatar.png",
+    "email": "test.user@example.com",
+    "id": "00000000-0000-4000-8000-000000000004",
+    "name": "Test User",
+    "type": "user",
+    "url": "https://linear.app/acme/profiles/test-user"
+  },
+  "createdAt": "2026-10-01T20:40:04.992Z",
+  "data": {
+    "addedToProjectAt": "2026-10-01T17:48:10.698Z",
+    "addedToTeamAt": "2026-10-01T16:51:21.846Z",
+    "assignee": {
+      "avatarUrl": "https://example.com/avatar.png",
+      "email": "test.user@example.com",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Test User",
+      "url": "https://linear.app/acme/profiles/test-user"
+    },
+    "assigneeId": "00000000-0000-4000-8000-000000000004",
+    "botActor": null,
+    "createdAt": "2026-10-01T16:51:21.785Z",
+    "creatorId": "00000000-0000-4000-8000-000000000004",
+    "description": "**Scope**\n`agent/integrations/` protocol and types, registry, `LinearSessionRef` on `RunConfig` and `SourceContext`.\n\n**Done when**\n`make typecheck` passes; no behaviour change.\n\nReferences: [Design](<https://example.com/doc>) \u00b7 [Work plan and success metrics](<https://example.com/doc>)",
+    "descriptionData": "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Scope\",\"marks\":[{\"type\":\"strong\",\"attrs\":{}},{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"hard_break\"},{\"type\":\"text\",\"text\":\"agent/integrations/\",\"marks\":[{\"type\":\"code\",\"attrs\":{}},{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\" protocol and types, registry, \",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\"LinearSessionRef\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}},{\"type\":\"code\",\"attrs\":{}}]},{\"type\":\"text\",\"text\":\" on \",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\"RunConfig\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}},{\"type\":\"code\",\"attrs\":{}}]},{\"type\":\"text\",\"text\":\" and \",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\"SourceContext\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}},{\"type\":\"code\",\"attrs\":{}}]},{\"type\":\"text\",\"text\":\".\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]}]},{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Done when\",\"marks\":[{\"type\":\"strong\",\"attrs\":{}},{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"hard_break\"},{\"type\":\"text\",\"text\":\"make typecheck\",\"marks\":[{\"type\":\"code\",\"attrs\":{}},{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\" passes; no behaviour change.\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]}]},{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"References: \",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\"Design\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}},{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/doc\",\"noEmbed\":null}}]},{\"type\":\"text\",\"text\":\" \u00b7 \",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}}]},{\"type\":\"text\",\"text\":\"Work plan and success metrics\",\"marks\":[{\"type\":\"attribution\",\"attrs\":{\"userId\":\"00000000-0000-4000-8000-000000000004\",\"actorType\":\"user_with_agent\"}},{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/doc\",\"noEmbed\":null}}]}]}]}",
+    "id": "00000000-0000-4000-8000-000000000012",
+    "identifier": "OSWE-7",
+    "inheritsSharedAccess": false,
+    "labelIds": [],
+    "labels": [],
+    "number": 7,
+    "previousIdentifiers": [
+      "KEN-7",
+      "LA-7"
+    ],
+    "priority": 0,
+    "priorityLabel": "No priority",
+    "prioritySortOrder": -4068,
+    "project": {
+      "id": "00000000-0000-4000-8000-000000000024",
+      "name": "open-swe-linear-integration",
+      "url": "https://linear.app/acme/project/open-swe-linear-integration-c5a5f215cf19"
+    },
+    "projectId": "00000000-0000-4000-8000-000000000024",
+    "reactionData": [],
+    "releases": [],
+    "slaType": "all",
+    "sortOrder": 27.17,
+    "startedAt": "2026-10-01T19:27:18.965Z",
+    "state": {
+      "color": "#0f783c",
+      "id": "00000000-0000-4000-8000-000000000025",
+      "name": "In Review",
+      "type": "started"
+    },
+    "stateId": "00000000-0000-4000-8000-000000000025",
+    "subscriberIds": [
+      "00000000-0000-4000-8000-000000000004",
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "team": {
+      "id": "00000000-0000-4000-8000-000000000008",
+      "key": "OSWE",
+      "name": "open-swe-linear-integration"
+    },
+    "teamId": "00000000-0000-4000-8000-000000000008",
+    "title": "2. Integration interface and refs",
+    "updatedAt": "2026-10-01T20:40:04.990Z",
+    "url": "https://linear.app/acme/issue/OSWE-7/2-integration-interface-and-refs"
+  },
+  "organizationId": "00000000-0000-4000-8000-000000000009",
+  "type": "Issue",
+  "updatedFrom": {
+    "delegateId": "00000000-0000-4000-8000-000000000001",
+    "updatedAt": "2026-10-01T20:39:50.164Z"
+  },
+  "url": "https://linear.app/acme/issue/OSWE-7/2-integration-interface-and-refs",
+  "webhookId": "00000000-0000-4000-8000-000000000010",
+  "webhookTimestamp": 1790887265370
+}

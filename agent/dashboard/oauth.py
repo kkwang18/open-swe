@@ -133,7 +133,13 @@ def _origin_of(url: str) -> str:
     return f"{scheme}://{host}:{port}"
 
 
+# API pages a signed-out person is sent to sign in for; each only redirects onward.
+_LOGIN_CONTINUATION_PATHS = frozenset({"/dashboard/api/integrations/linear/link"})
+
+
 def _is_blocked_redirect_path(path: str) -> bool:
+    if path in _LOGIN_CONTINUATION_PATHS:
+        return False
     return path in {"/login", "/dashboard/api", "/_serverFn"} or path.startswith(
         ("/login/", "/login?", "/login#", "/dashboard/api/", "/_serverFn/")
     )

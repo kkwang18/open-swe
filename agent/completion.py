@@ -24,6 +24,12 @@ from agent.config import ENV
 from agent.dispatch import FOLLOW_UP_PICKUP_KIND
 from agent.github.app import get_github_app_installation_token
 from agent.github.comments import post_github_comment
+from agent.integrations.linear.session import (
+    final_answer,
+    post_final_response,
+    post_session_error,
+    run_session_id,
+)
 from agent.invocation import resolve_invocation_id, with_invocation_id
 from agent.linear.notifications import post_linear_notification
 from agent.review.findings import REVIEWER_THREAD_KIND
@@ -184,11 +190,25 @@ async def _settle_failed_reviewer_check(thread_id: str, metadata: dict[str, Any]
 
 
 async def _post_failure_reply(
-    thread_id: str, metadata: dict[str, Any], status: str, reason_code: str | None = None
+    thread_id: str,
+    metadata: dict[str, Any],
+    status: str,
+    reason_code: str | None = None,
+    run_id: str | None = None,
 ) -> bool:
     """Post a failure reply to the run's originating channel. Best-effort."""
     source = metadata.get("source")
     ctx = SourceContext.from_metadata(metadata)
+    # A run on a Linear issue's thread reports to its own session whichever surface
+    # started it, and a GitHub follow-up also marks the thread's source as github.
+    linear_session_id = (
+        await _linear_session_of(thread_id, run_id) if ctx.linear_issue is not None else None
+    )
+    linear_posted = False
+    if linear_session_id:
+        linear_posted = await post_session_error(
+            linear_session_id, run_id, _failure_text(status, reason_code=reason_code)
+        )
 
     if source == "slack" or ctx.slack_thread is not None:
         location = ctx.slack_location
@@ -204,6 +224,8 @@ async def _post_failure_reply(
         return False
 
     if source == "linear":
+        if linear_session_id:
+            return linear_posted
         if ctx.linear_issue and ctx.linear_issue.id:
             return await post_linear_notification(
                 ctx.linear_issue.id, _failure_text(status, reason_code=reason_code)
@@ -224,8 +246,10 @@ async def _post_failure_reply(
                     _failure_text(status, reason_code=reason_code),
                     token=token,
                 )
-        return False
+        return linear_posted
 
+    if linear_posted:
+        return True
     logger.info("No failure-reply channel for thread %s (source=%s)", thread_id, source)
     return False
 
@@ -328,6 +352,36 @@ async def _settle_code_channel_session(
     await set_session_status(slack_thread.channel_id, "active")
 
 
+async def _linear_session_of(thread_id: str, run_id: str | None) -> str | None:
+    if not run_id:
+        return None
+    try:
+        return run_session_id(await langgraph_client().runs.get(thread_id, run_id))
+    except Exception:
+        logger.warning("run-complete: could not load run %s", run_id, exc_info=True)
+        return None
+
+
+async def _settle_linear_session(
+    thread: object, thread_id: str, run_id: str, metadata: dict[str, Any]
+) -> None:
+    """Close the run's Linear session if the run itself could not; a repeat is a no-op."""
+    # Only a Linear issue's thread has sessions; others need no lookup of the run.
+    if SourceContext.from_metadata(metadata).linear_issue is None:
+        return
+    session_id = await _linear_session_of(thread_id, run_id)
+    if session_id is None:
+        return
+    values = thread.get("values") if isinstance(thread, dict) else None
+    raw_messages = values.get("messages") if isinstance(values, dict) else None
+    try:
+        messages = convert_to_messages(raw_messages or [])
+    except _MESSAGE_CONVERSION_ERRORS:
+        logger.warning("run-complete: unreadable messages for Linear reply", exc_info=True)
+        messages = []
+    await post_final_response(session_id, run_id, thread_id, final_answer(messages))
+
+
 async def _handle_successful_run(
     thread_id: str, run_id: str | None, payload: dict[str, Any]
 ) -> dict[str, str]:
@@ -348,6 +402,7 @@ async def _handle_successful_run(
         return await turns.handle_run_completion(thread_id, run_id, "success")
     if metadata.get("kind") == REVIEWER_THREAD_KIND:
         return {"status": "ignored", "reason": "not an agent Slack run"}
+    await _settle_linear_session(thread, thread_id, run_id, metadata)
     await _settle_code_channel_session(client, thread_id, metadata)
     await sync_slack_background_status(client, thread_id)
     payload_metadata = payload.get("metadata")
@@ -538,7 +593,7 @@ async def handle_run_completion(payload: dict[str, Any]) -> dict[str, str]:
         return {"status": "ignored", "reason": "failure reply already posted for run"}
 
     reason_code = _failure_reason_code(error, metadata, run_id)
-    posted = await _post_failure_reply(thread_id, metadata, status, reason_code)
+    posted = await _post_failure_reply(thread_id, metadata, status, reason_code, run_id)
     if not posted:
         return {"status": "ignored", "reason": "no reply posted"}
 

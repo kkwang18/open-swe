@@ -70,6 +70,16 @@ class LinearIssueRef(BaseModel):
     url: str = ""
 
 
+class LinearSessionRef(BaseModel):
+    """The Linear agent session a run reports to; the issue is in ``linear_issue``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = ""
+    # The workspace's and teams' instructions for agents, from the session's start.
+    guidance: str = ""
+
+
 class GitHubIssueRef(BaseModel):
     model_config = ConfigDict(extra="allow")
 

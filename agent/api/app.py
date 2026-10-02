@@ -37,6 +37,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     from agent.dashboard.admin import configured_admins
     from agent.dashboard.oauth import validate_github_login_allowlist
     from agent.database.analytics import activate_reporting, load_workspace
+    from agent.integrations.linear.client import app_user_id as linear_app_user_id
+    from agent.integrations.linear.token import linear_app_configured
     from agent.sandboxes.providers.registry import validate_sandbox_startup_config
     from agent.schedules.store import migrate_automation_workspaces
     from agent.transcript import listener as transcript_listener
@@ -88,6 +90,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
     if admins := configured_admins():
         await User.sync_admins(admins)
+    if linear_app_configured():
+        try:
+            # Mints the app token and caches the app user id, so a bad Linear
+            # credential shows up at boot rather than on the first session.
+            app_user = await linear_app_user_id()
+        except Exception:  # noqa: BLE001
+            # Startup continues: Linear sessions fail until the credential works,
+            # and nothing else depends on Linear.
+            logger.exception("Linear agent app authentication failed")
+        else:
+            logger.info("Linear agent app authenticated", extra={"linear_app_user_id": app_user})
     try:
         await load_workspace()
         await activate_reporting()

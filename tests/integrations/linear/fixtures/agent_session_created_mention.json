@@ -1,0 +1,79 @@
+{
+  "action": "created",
+  "agentSession": {
+    "appUserId": "00000000-0000-4000-8000-000000000001",
+    "archivedAt": null,
+    "comment": {
+      "body": "@openswe summarize",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "issueId": "00000000-0000-4000-8000-000000000012",
+      "userId": "00000000-0000-4000-8000-000000000004"
+    },
+    "commentId": "00000000-0000-4000-8000-000000000011",
+    "context": [],
+    "createdAt": "2026-10-01T21:02:36.220Z",
+    "creator": {
+      "avatarUrl": "https://example.com/avatar.png",
+      "email": "test.user@example.com",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Test User",
+      "url": "https://linear.app/acme/profiles/test-user"
+    },
+    "creatorId": "00000000-0000-4000-8000-000000000004",
+    "dismissedAt": null,
+    "dismissedById": null,
+    "endedAt": null,
+    "externalLink": null,
+    "externalUrls": [],
+    "id": "00000000-0000-4000-8000-000000000013",
+    "issue": {
+      "description": "**Scope**\n`agent/integrations/` protocol and types, registry, `LinearSessionRef` on `RunConfig` and `SourceContext`.\n\n**Done when**\n`make typecheck` passes; no behaviour change.\n\nReferences: [Design](<https://example.com/doc>) \u00b7 [Work plan and success metrics](<https://example.com/doc>)",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "identifier": "OSWE-7",
+      "team": {
+        "id": "00000000-0000-4000-8000-000000000008",
+        "key": "OSWE",
+        "name": "open-swe-linear-integration"
+      },
+      "teamId": "00000000-0000-4000-8000-000000000008",
+      "title": "2. Integration interface and refs",
+      "url": "https://linear.app/acme/issue/OSWE-7/2-integration-interface-and-refs"
+    },
+    "issueId": "00000000-0000-4000-8000-000000000012",
+    "modelSelection": null,
+    "organizationId": "00000000-0000-4000-8000-000000000009",
+    "plan": null,
+    "pullRequestId": null,
+    "slugId": "e900e789b32de",
+    "sourceCommentId": null,
+    "sourceMetadata": {
+      "agentSessionMetadata": {
+        "sourceCommentId": "00000000-0000-4000-8000-000000000011"
+      },
+      "type": "comment"
+    },
+    "startedAt": null,
+    "status": "pending",
+    "summary": null,
+    "updatedAt": "2026-10-01T21:02:36.220Z",
+    "url": "https://linear.app/acme/agent-session/00000000-0000-4000-8000-000000000013",
+    "workspaceDiff": null
+  },
+  "appUserId": "00000000-0000-4000-8000-000000000001",
+  "createdAt": "2026-10-01T21:02:36.678Z",
+  "guidance": null,
+  "oauthClientId": "test-oauth-client-id",
+  "organizationId": "00000000-0000-4000-8000-000000000009",
+  "previousComments": [
+    {
+      "body": "@openswe summarize",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "issueId": "00000000-0000-4000-8000-000000000012",
+      "userId": "00000000-0000-4000-8000-000000000004"
+    }
+  ],
+  "promptContext": "<issue identifier=\"OSWE-7\">\n<title>2. Integration interface and refs</title>\n<description>\n**Scope**\n`agent/integrations/` protocol and types, registry, `LinearSessionRef` on `RunConfig` and `SourceContext`.\n\n**Done when**\n`make typecheck` passes; no behaviour change.\n\nReferences: [Design](<https://example.com/doc>) \u00b7 [Work plan and success metrics](<https://example.com/doc>)\n</description>\n<team name=\"open-swe-linear-integration\"/>\n<project name=\"open-swe-linear-integration\"/>\n<issue-relations>\n<blocking>\n<issue-ref identifier=\"OSWE-17\" title=\"15. End-to-end verification\"/>\n<issue-ref identifier=\"OSWE-8\" title=\"3. Linear app auth\"/>\n<issue-ref identifier=\"OSWE-18\" title=\"4. Intake and outbox tables\"/>\n</blocking>\n</issue-relations>\n</issue>\n\n<primary-directive-thread comment-id=\"00000000-0000-4000-8000-000000000011\"><comment author=\"Test User\" created-at=\"2026-10-01T21:02:35.966Z\"><user id=\"00000000-0000-4000-8000-000000000001\" notify>openswe</user> summarize</comment></primary-directive-thread>\n\n<other-thread comment-id=\"00000000-0000-4000-8000-000000000014\"><comment author=\"open swe\" created-at=\"2026-10-01T20:59:06.818Z\">Spike: acknowledged. No work was done.</comment></other-thread>\n\n<other-thread comment-id=\"00000000-0000-4000-8000-000000000015\">\n<comment author=\"Test User\" created-at=\"2026-10-01T20:59:13.529Z\"><user id=\"00000000-0000-4000-8000-000000000001\" notify>openswe</user> summarize ticket</comment>\n<comment author=\"open swe\" created-at=\"2026-10-01T20:59:15.000Z\">Spike: acknowledged. No work was done.</comment>\n<comment author=\"Test User\" created-at=\"2026-10-01T20:59:17.263Z\">stop</comment>\n<comment author=\"open swe\" created-at=\"2026-10-01T20:59:17.862Z\">Spike: got your message.</comment>\n<comment author=\"Test User\" created-at=\"2026-10-01T20:59:52.888Z\">slow</comment>\n<comment author=\"open swe\" created-at=\"2026-10-01T21:00:01.610Z\">Spike: stopped.</comment>\n<comment author=\"Test User\" created-at=\"2026-10-01T21:00:47.267Z\">summarize</comment>\n<comment author=\"open swe\" created-at=\"2026-10-01T21:00:48.302Z\">Spike: got your message.</comment>\n</other-thread>\n\n<other-thread comment-id=\"00000000-0000-4000-8000-000000000016\">\n<comment author=\"Test User\" created-at=\"2026-10-01T21:02:08.973Z\"><user id=\"00000000-0000-4000-8000-000000000001\" notify>openswe</user> work on this</comment>\n<comment author=\"open swe\" created-at=\"2026-10-01T21:02:19.863Z\">Spike: stopped.</comment>\n</other-thread>",
+  "type": "AgentSessionEvent",
+  "webhookId": "00000000-0000-4000-8000-000000000010",
+  "webhookTimestamp": 1790888556713
+}

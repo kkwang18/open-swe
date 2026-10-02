@@ -94,6 +94,12 @@ from agent.input_messages import (
     person_introduction,
     visible_dynamic_context_hashes,
 )
+from agent.integrations.linear.ask import ask_with_options
+from agent.integrations.linear.create_issue import create_linear_issue
+from agent.integrations.linear.middleware import LinearSessionMiddleware
+from agent.integrations.linear.token import linear_app_configured
+from agent.integrations.linear.tools import GROUP_NAME as LINEAR_TOOL_GROUP
+from agent.integrations.linear.tools import linear_tool_group
 from agent.mcp import load_mcp_tools
 from agent.mcp.instance import instance_mcp_source
 from agent.mcp.user import user_mcp_source
@@ -1316,6 +1322,8 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 slack_ask=_slack_ask_mode(cfg),
                 slack_by_the_way=_slack_ask_mode(cfg) and bool(cfg.slack_by_the_way_thread_ts),
                 slack_breakout=cfg.slack_breakout is True,
+                linear_session=cfg.linear_session is not None and bool(cfg.linear_session.id),
+                linear_guidance=cfg.linear_session.guidance if cfg.linear_session else "",
                 sandbox_file_downloads=_sandbox_file_downloads_enabled(cfg),
                 continued_from_collaborative=bool(cfg.continued_from_thread_id),
                 local_checkout=bridged,
@@ -1656,6 +1664,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         )
 
     slack_tools = [
+        create_linear_issue,
         manage_code_channel,
         manage_incident,
         slack_add_reaction,
@@ -1684,6 +1693,11 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         get_thread,
         manage_thread,
         *((start_thread,) if _slack_concierge_run(cfg) else ()),
+        *(
+            (ask_with_options,)
+            if cfg.source == "linear" and cfg.linear_session and cfg.linear_session.id
+            else ()
+        ),
         manage_baby_sit,
         expedite_pr_approval,
         merge_expedited_pr,
@@ -1720,6 +1734,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         slack_read_thread_messages,
         slack_reply,
         slack_start_new_thread,
+        *((create_linear_issue,) if linear_app_configured() else ()),
         submit_thread_feedback,
         submit_review_assessment_feedback,
         *ADMIN_TOOLS,
@@ -1806,6 +1821,9 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         "MCPs": mcp_tools,
         "Notion": notion_tools,
     }
+    # Only runs a Linear session started get Linear's tools, acting as the app.
+    if cfg.linear_session is not None and cfg.linear_session.id and linear_app_configured():
+        integration_tool_groups[LINEAR_TOOL_GROUP] = linear_tool_group()
     if integration_tool_groups:
         candidate = DynamicToolMiddleware(
             integration_tool_groups,
@@ -2048,6 +2066,11 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
                     *(
                         [RequireCliResultMiddleware(_registered_tool_name(cli_result))]
                         if cli_result_required
+                        else []
+                    ),
+                    *(
+                        [LinearSessionMiddleware(cfg.linear_session.id)]
+                        if cfg.linear_session is not None and cfg.linear_session.id
                         else []
                     ),
                     notify_step_limit_reached,

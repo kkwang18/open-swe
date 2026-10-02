@@ -31,7 +31,7 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 from agent.invocation import resolve_invocation_id
 from agent.openai_responses.client_tools import ClientToolSpec
-from agent.source_context import GitHubIssueRef, LinearIssueRef, SlackThreadRef
+from agent.source_context import GitHubIssueRef, LinearIssueRef, LinearSessionRef, SlackThreadRef
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +124,7 @@ class RunConfig(BaseModel):
     # Where the run came from
     slack_thread: SlackThreadRef | None = None
     linear_issue: LinearIssueRef | None = None
+    linear_session: LinearSessionRef | None = None
     github_issue: GitHubIssueRef | None = None
     github_pr_or_issue: GitHubPROrIssueRef | None = None
 
