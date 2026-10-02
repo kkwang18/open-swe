@@ -321,3 +321,55 @@ async def create_session_on_issue(issue_id: str, label: str, url: str | None) ->
         await linear_graphql(_SESSION_CREATE_ON_ISSUE, {"input": session_input})
     )
     return data.agent_session_create_on_issue.agent_session.id
+
+
+class LinearTeam(BaseModel):
+    id: str
+    key: str
+    name: str
+
+
+class _TeamNodes(BaseModel):
+    nodes: list[LinearTeam]
+
+
+class _TeamsData(BaseModel):
+    teams: _TeamNodes
+
+
+async def list_teams() -> list[LinearTeam]:
+    """The teams the app can reach: every public team in the workspace."""
+    data = _TeamsData.model_validate(
+        await linear_graphql("query { teams(first: 100) { nodes { id key name } } }")
+    )
+    return data.teams.nodes
+
+
+class CreatedIssue(BaseModel):
+    identifier: str
+    url: str
+
+
+class _IssueCreatePayload(BaseModel):
+    issue: CreatedIssue
+
+
+class _IssueCreateData(BaseModel):
+    issue_create: _IssueCreatePayload = Field(alias="issueCreate")
+
+
+_ISSUE_CREATE = """
+mutation IssueCreate($input: IssueCreateInput!) {
+  issueCreate(input: $input) { issue { identifier url } }
+}
+"""
+
+
+async def create_issue(team_id: str, title: str, description: str) -> CreatedIssue:
+    data = _IssueCreateData.model_validate(
+        await linear_graphql(
+            _ISSUE_CREATE,
+            {"input": {"teamId": team_id, "title": title, "description": description}},
+        )
+    )
+    return data.issue_create.issue

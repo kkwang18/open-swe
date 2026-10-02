@@ -95,6 +95,7 @@ from agent.input_messages import (
     visible_dynamic_context_hashes,
 )
 from agent.integrations.linear.ask import ask_with_options
+from agent.integrations.linear.create_issue import create_linear_issue
 from agent.integrations.linear.middleware import LinearSessionMiddleware
 from agent.integrations.linear.token import linear_app_configured
 from agent.integrations.linear.tools import GROUP_NAME as LINEAR_TOOL_GROUP
@@ -1663,6 +1664,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         )
 
     slack_tools = [
+        create_linear_issue,
         manage_code_channel,
         manage_incident,
         slack_add_reaction,
@@ -1732,6 +1734,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         slack_read_thread_messages,
         slack_reply,
         slack_start_new_thread,
+        *((create_linear_issue,) if linear_app_configured() else ()),
         submit_thread_feedback,
         submit_review_assessment_feedback,
         *ADMIN_TOOLS,
