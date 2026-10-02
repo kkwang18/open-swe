@@ -14,6 +14,7 @@ from agent.integrations import intake
 from agent.integrations.base import Ignored
 from agent.integrations.linear.events import DelegationRemoved, LinearEvent, SessionCreated
 from agent.integrations.linear.integration import LinearIntegration
+from agent.prompt import construct_system_prompt
 
 FIXTURES = Path(__file__).with_name("fixtures")
 SECRET = "test-webhook-secret"
@@ -117,3 +118,33 @@ def test_late_prompt_is_ignored_but_late_stop_and_undelegation_are_not():
     assert parse("agent_session_prompted_stop").signal == "stop"
     assert isinstance(parse("issue_undelegated"), DelegationRemoved)
     assert isinstance(parse("issue_delegated"), Ignored)
+
+
+def test_session_guidance_reaches_the_system_prompt_once():
+    payload = _payload("agent_session_created_delegation")
+    payload["guidance"] = [
+        {"body": "Open PRs as drafts.", "origin": {"type": "Organization"}},
+        {
+            "body": "Work in acme/api.",
+            "origin": {"type": "Team", "team": {"id": "t1", "name": "Backend"}},
+        },
+    ]
+    payload["promptContext"] = (
+        f"{payload['promptContext']}\n<guidance>\n"
+        '<guidance-rule origin="team" team-name="Backend">Work in acme/api.</guidance-rule>\n'
+        "</guidance>"
+    )
+    now = _created_at("agent_session_created_delegation")
+    event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
+    assert isinstance(event, SessionCreated)
+
+    system_prompt = construct_system_prompt(
+        working_dir="/workspace",
+        source="linear",
+        linear_session=True,
+        linear_guidance=event.guidance,
+    )
+    assert "From the workspace:\nOpen PRs as drafts." in system_prompt
+    assert "From team Backend:\nWork in acme/api." in system_prompt
+    assert "<guidance>" not in event.prompt_context
+    assert '<issue identifier="OSWE-6">' in event.prompt_context

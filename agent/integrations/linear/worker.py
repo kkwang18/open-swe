@@ -73,6 +73,7 @@ class _PendingQuestion(BaseModel):
     options: list[_PendingOption] = Field(default_factory=list)
     link_url: str | None = None
     prompt_context: str = ""
+    guidance: str = ""
 
     def options_as_choices(self) -> tuple[SelectOption, ...]:
         return tuple(SelectOption(value=o.value, label=o.label) for o in self.options)
@@ -125,6 +126,7 @@ async def _start_session(event: SessionCreated) -> None:
         request,
         event.comment_id,
         prompt_context=event.prompt_context,
+        guidance=event.guidance,
     )
 
 
@@ -140,9 +142,18 @@ async def _continue_session(event: SessionPrompted) -> None:
         return
     thread_id = linear_issue_thread_id(event.issue.id)
     await _acknowledge(event.session_id, event.delivery_id, thread_id)
-    pending = _pending_question(_metadata(await _thread(thread_id)), event.session_id)
+    metadata = _metadata(await _thread(thread_id))
+    pending = _pending_question(metadata, event.session_id)
     if pending is None:
-        await _run(event.session_id, thread_id, event.issue, event.author, event.body, None)
+        await _run(
+            event.session_id,
+            thread_id,
+            event.issue,
+            event.author,
+            event.body,
+            None,
+            guidance=event.guidance or _session_guidance(metadata, event.session_id),
+        )
         return
     if event.author.id != pending.requester_id:
         await post_activity(
@@ -162,6 +173,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             pending.request,
             pending.comment_id,
             prompt_context=pending.prompt_context,
+            guidance=pending.guidance,
         )
         return
     choice = interpret_answer(pending.options_as_choices(), event.body)
@@ -179,6 +191,7 @@ async def _continue_session(event: SessionPrompted) -> None:
         pending.comment_id,
         chosen_repo=repo,
         prompt_context=pending.prompt_context,
+        guidance=pending.guidance,
     )
 
 
@@ -206,6 +219,7 @@ async def _run(
     *,
     chosen_repo: RepoConfig | None = None,
     prompt_context: str = "",
+    guidance: str = "",
 ) -> None:
     """Authorize the requester, settle the repository, then dispatch on the issue thread."""
     user = await requester(author, issue)
@@ -215,7 +229,7 @@ async def _run(
         return
     if isinstance(actor, PendingQuestion):
         await _save_and_ask(
-            actor, session_id, thread_id, issue, user, request, comment_id, prompt_context
+            actor, session_id, thread_id, issue, user, request, comment_id, prompt_context, guidance
         )
         return
     thread = await _thread(thread_id)
@@ -229,7 +243,7 @@ async def _run(
         return
     if isinstance(repo, PendingQuestion):
         await _save_and_ask(
-            repo, session_id, thread_id, issue, user, request, comment_id, prompt_context
+            repo, session_id, thread_id, issue, user, request, comment_id, prompt_context, guidance
         )
         return
     await _close_superseded_session(thread, session_id)
@@ -246,7 +260,7 @@ async def _run(
     await process_linear_issue(
         issue_data,
         repo,
-        linear_session=LinearSessionRef(id=session_id),
+        linear_session=LinearSessionRef(id=session_id, guidance=guidance),
         github_login=actor.github_login,
         prompt_context=prompt_context,
     )
@@ -261,6 +275,7 @@ async def _save_and_ask(
     request: str,
     comment_id: str | None,
     prompt_context: str,
+    guidance: str,
 ) -> None:
     pending = _PendingQuestion(
         kind=question.kind,
@@ -274,6 +289,7 @@ async def _save_and_ask(
         options=[_PendingOption(value=o.value, label=o.label) for o in question.options],
         link_url=question.link_url,
         prompt_context=prompt_context,
+        guidance=guidance,
     )
     await _set_pending_question(thread_id, pending)
     await _ask(pending)
@@ -304,6 +320,7 @@ async def resume_after_link(session_id: str, issue_id: str, linear_user_id: str)
             pending.request,
             pending.comment_id,
             prompt_context=pending.prompt_context,
+            guidance=pending.guidance,
         )
     except Exception:
         logger.exception("Resuming a Linear request after linking failed")
@@ -343,6 +360,12 @@ def _pending_question(metadata: Mapping[str, object], session_id: str) -> _Pendi
         logger.warning("Unreadable pending Linear question", exc_info=True)
         return None
     return pending if pending.session_id == session_id else None
+
+
+def _session_guidance(metadata: Mapping[str, object], session_id: str) -> str:
+    """The guidance Linear sent when this session started, kept with its earlier run."""
+    session = SourceContext.from_metadata(metadata).linear_session
+    return session.guidance if session is not None and session.id == session_id else ""
 
 
 async def _set_pending_question(thread_id: str, pending: _PendingQuestion | None) -> None:
