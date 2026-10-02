@@ -8,6 +8,7 @@ import httpx
 from langgraph_sdk.errors import ConflictError, NotFoundError
 
 from agent.integrations.base import Actor
+from agent.integrations.linear import session as linear_session
 from agent.integrations.linear import worker
 from agent.integrations.linear.client import linear_activity_id
 from agent.integrations.linear.events import SessionCreated, SessionPrompted
@@ -49,6 +50,11 @@ class _FakeThreads:
 
     async def update(self, *, thread_id: str, metadata: dict[str, object]) -> None:
         self.metadata[thread_id].update(metadata)
+
+    async def delete(self, thread_id: str) -> None:
+        if self.metadata.pop(thread_id, None) is None:
+            response = httpx.Response(404, request=httpx.Request("DELETE", "http://langgraph"))
+            raise NotFoundError("missing", response=response, body=None)
 
     async def get(self, thread_id: str) -> dict[str, object]:
         if thread_id not in self.metadata:
@@ -284,7 +290,7 @@ async def test_new_session_closes_the_session_whose_run_it_interrupts(monkeypatc
         closed.append(session_id)
 
     monkeypatch.setattr(worker, "get_client", lambda: client)
-    monkeypatch.setattr(worker, "post_activity", post_activity)
+    monkeypatch.setattr(linear_session, "post_activity", post_activity)
 
     await worker._close_superseded_sessions("thread-1", "third-session")
 

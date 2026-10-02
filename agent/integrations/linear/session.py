@@ -3,9 +3,11 @@
 import asyncio
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage
+from langgraph_sdk.client import LangGraphClient
+from langgraph_sdk.errors import NotFoundError
 from langgraph_sdk.schema import Run
 from pydantic import JsonValue, ValidationError
 
@@ -41,6 +43,38 @@ def run_session(run: Run) -> LinearSessionRef | None:
 def run_session_id(run: Run) -> str | None:
     session = run_session(run)
     return session.id if session is not None else None
+
+
+async def running_sessions(
+    client: LangGraphClient, thread_id: str, *, besides: str | None = None
+) -> tuple[str, ...]:
+    """The sessions of the thread's pending and running runs, which a new run interrupts."""
+    sessions: set[str] = set()
+    for status in ("pending", "running"):
+        try:
+            runs = await client.runs.list(thread_id, status=status, limit=100)
+        except NotFoundError:
+            # No run has created the issue's thread yet.
+            return ()
+        sessions.update(
+            session for run in runs if (session := run_session_id(run)) and session != besides
+        )
+    return tuple(sorted(sessions))
+
+
+async def close_superseded_sessions(session_ids: Iterable[str]) -> None:
+    """One run per issue thread: tell the sessions a newer request interrupted."""
+    for session_id in session_ids:
+        try:
+            await post_activity(
+                session_id,
+                {"type": "response", "body": "Continued in a newer request on this issue."},
+            )
+        except Exception:
+            logger.exception(
+                "Closing a superseded Linear session failed",
+                extra={"linear_session_id": session_id},
+            )
 
 
 def final_answer(messages: Sequence[BaseMessage]) -> str:

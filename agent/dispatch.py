@@ -45,6 +45,7 @@ from agent.input_messages import (
     build_run_input,
 )
 from agent.integrations.linear.outside import open_session_for_outside_run
+from agent.integrations.linear.session import close_superseded_sessions
 from agent.invocation import new_invocation_id, resolve_invocation_id, with_invocation_id
 from agent.run_config import RunConfig
 from agent.source_context import SourceContext
@@ -401,13 +402,20 @@ async def dispatch_agent_run(
             else await _dispatch_input(content, source, configurable)
         )
     client = client or dispatch_client()
+    superseded: tuple[str, ...] = ()
     if assistant_id == "agent":
-        await open_session_for_outside_run(client, thread_id, configurable, source=source)
+        superseded = await open_session_for_outside_run(
+            client,
+            thread_id,
+            configurable,
+            source=source,
+            interrupts=multitask_strategy == "interrupt",
+        )
     if assistant_id == "agent" and source in {"slack", "web", "desktop", "dashboard"}:
         from agent.thread_feedback import note_feedback_activity
 
         await note_feedback_activity(thread_id, client=client)
-    return await create_durable_run(
+    run = await create_durable_run(
         thread_id,
         assistant_id,
         input=input,
@@ -419,3 +427,5 @@ async def dispatch_agent_run(
         multitask_strategy=multitask_strategy,
         source_context=source_context,
     )
+    await close_superseded_sessions(superseded)
+    return run

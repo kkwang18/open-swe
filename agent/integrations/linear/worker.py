@@ -42,7 +42,12 @@ from agent.integrations.linear.events import (
     SessionPrompted,
 )
 from agent.integrations.linear.outside import is_own_session
-from agent.integrations.linear.session import run_session, run_session_id
+from agent.integrations.linear.session import (
+    close_superseded_sessions,
+    run_session,
+    run_session_id,
+    running_sessions,
+)
 from agent.integrations.linear.slack_origin import announce_done
 from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef
@@ -124,7 +129,9 @@ async def _report_failure(session_id: str) -> None:
 
 
 async def _start_session(event: SessionCreated) -> None:
-    if event.creator is None and await is_own_session(get_client(), event.issue.id):
+    if event.creator is None and await is_own_session(
+        get_client(), event.issue.id, event.session_id
+    ):
         # The session a run started outside Linear opened for itself; that run reports to it.
         return
     thread_id = linear_issue_thread_id(event.issue.id)
@@ -466,20 +473,9 @@ def _metadata(thread: Thread | None) -> Mapping[str, object]:
 
 async def _close_superseded_sessions(thread_id: str, session_id: str) -> None:
     """One run per issue thread: a new session interrupts the running ones, so say so there."""
-    previous: set[str] = set()
-    for status in ("pending", "running"):
-        for run in await _thread_runs(thread_id, status):
-            other = run_session_id(run)
-            if other and other != session_id:
-                previous.add(other)
-    try:
-        for other in sorted(previous):
-            await post_activity(
-                other,
-                {"type": "response", "body": "Continued in a newer request on this issue."},
-            )
-    except Exception:
-        logger.exception("Closing the superseded Linear session failed")
+    await close_superseded_sessions(
+        await running_sessions(get_client(), thread_id, besides=session_id)
+    )
 
 
 async def _mark_stopped(session_id: str, stopped_at: datetime) -> None:
