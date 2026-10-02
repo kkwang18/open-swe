@@ -7,6 +7,7 @@ session unresponsive when no activity arrives within ten seconds.
 import logging
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Literal
 
 from langgraph_sdk import get_client
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 # Long enough to outlast the dispatch it guards; a Stop only matters before then.
 STOP_MARKER_TTL_MINUTES = 60
+# Stop marker metadata: when the session's latest Stop was sent.
+STOPPED_AT_KEY = "stopped_at"
 # Thread metadata holding a question the requester has yet to answer.
 PENDING_QUESTION_KEY = "linear_pending_question"
 
@@ -79,6 +82,8 @@ class _PendingQuestion(BaseModel):
     link_url: str | None = None
     prompt_context: str = ""
     guidance: str = ""
+    # When the request was made; a Stop after it cancels the request even once answered.
+    requested_at: datetime | None = None
 
     def options_as_choices(self) -> tuple[SelectOption, ...]:
         return tuple(SelectOption(value=o.value, label=o.label) for o in self.options)
@@ -124,7 +129,7 @@ async def _start_session(event: SessionCreated) -> None:
         return
     thread_id = linear_issue_thread_id(event.issue.id)
     await _acknowledge(event.session_id, event.delivery_id, thread_id)
-    if await _is_stopped(event.session_id):
+    if await _stopped_since(event.session_id, event.created_at):
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
         return
     request = event.comment_body if event.from_mention else ""
@@ -135,6 +140,7 @@ async def _start_session(event: SessionCreated) -> None:
         event.creator,
         request,
         event.comment_id,
+        requested_at=event.created_at,
         prompt_context=event.prompt_context,
         guidance=event.guidance,
     )
@@ -142,7 +148,7 @@ async def _start_session(event: SessionCreated) -> None:
 
 async def _continue_session(event: SessionPrompted) -> None:
     if event.signal == "stop":
-        await _mark_stopped(event.session_id)
+        await _mark_stopped(event.session_id, event.created_at)
         if event.issue is not None:
             await _cancel_session_runs(linear_issue_thread_id(event.issue.id), {event.session_id})
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
@@ -162,6 +168,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             event.author,
             event.body,
             None,
+            requested_at=event.created_at,
             guidance=event.guidance or await _session_guidance(thread_id, event.session_id),
         )
         return
@@ -182,6 +189,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             pending.author,
             pending.request,
             pending.comment_id,
+            requested_at=event.created_at,
             prompt_context=pending.prompt_context,
             guidance=pending.guidance,
         )
@@ -199,6 +207,7 @@ async def _continue_session(event: SessionPrompted) -> None:
         event.author,
         pending.request,
         pending.comment_id,
+        requested_at=event.created_at,
         chosen_repo=repo,
         prompt_context=pending.prompt_context,
         guidance=pending.guidance,
@@ -227,6 +236,7 @@ async def _run(
     request: str,
     comment_id: str | None,
     *,
+    requested_at: datetime,
     chosen_repo: RepoConfig | None = None,
     prompt_context: str = "",
     guidance: str = "",
@@ -239,7 +249,16 @@ async def _run(
         return
     if isinstance(actor, PendingQuestion):
         await _save_and_ask(
-            actor, session_id, thread_id, issue, user, request, comment_id, prompt_context, guidance
+            actor,
+            session_id,
+            thread_id,
+            issue,
+            user,
+            request,
+            comment_id,
+            prompt_context,
+            guidance,
+            requested_at,
         )
         return
     thread = await _thread(thread_id)
@@ -253,7 +272,16 @@ async def _run(
         return
     if isinstance(repo, PendingQuestion):
         await _save_and_ask(
-            repo, session_id, thread_id, issue, user, request, comment_id, prompt_context, guidance
+            repo,
+            session_id,
+            thread_id,
+            issue,
+            user,
+            request,
+            comment_id,
+            prompt_context,
+            guidance,
+            requested_at,
         )
         return
     await _close_superseded_sessions(thread_id, session_id)
@@ -267,6 +295,10 @@ async def _run(
         "triggering_comment": request,
         "triggering_comment_id": comment_id or "",
     }
+    # Authorizing and choosing the repository take seconds; a Stop in that time has
+    # nothing to cancel yet, so it is checked here, and again once the run exists.
+    if await _stopped_since(session_id, requested_at):
+        return
     await process_linear_issue(
         issue_data,
         repo,
@@ -274,6 +306,9 @@ async def _run(
         github_login=actor.github_login,
         prompt_context=prompt_context,
     )
+    if await _stopped_since(session_id, requested_at):
+        await _cancel_session_runs(thread_id, {session_id})
+        return
     # Linear leaves issues an automation delegated in triage for a person to pick up.
     if author is not None:
         await _start_issue(issue.id)
@@ -299,6 +334,7 @@ async def _save_and_ask(
     comment_id: str | None,
     prompt_context: str,
     guidance: str,
+    requested_at: datetime,
 ) -> None:
     pending = _PendingQuestion(
         kind=question.kind,
@@ -313,6 +349,7 @@ async def _save_and_ask(
         link_url=question.link_url,
         prompt_context=prompt_context,
         guidance=guidance,
+        requested_at=requested_at,
     )
     await _set_pending_question(thread_id, pending)
     await _ask(pending)
@@ -342,6 +379,7 @@ async def resume_after_link(session_id: str, issue_id: str, linear_user_id: str)
             pending.author,
             pending.request,
             pending.comment_id,
+            requested_at=pending.requested_at or datetime.now(UTC),
             prompt_context=pending.prompt_context,
             guidance=pending.guidance,
         )
@@ -444,23 +482,44 @@ async def _close_superseded_sessions(thread_id: str, session_id: str) -> None:
         logger.exception("Closing the superseded Linear session failed")
 
 
-async def _mark_stopped(session_id: str) -> None:
+async def _mark_stopped(session_id: str, stopped_at: datetime) -> None:
+    """Record the latest Stop; requests made before it are cancelled, later ones run."""
+    client = get_client()
+    marker = _stop_marker_id(session_id)
     try:
         await create_lock_thread(
-            get_client(), _stop_marker_id(session_id), ttl_minutes=STOP_MARKER_TTL_MINUTES
+            client,
+            marker,
+            ttl_minutes=STOP_MARKER_TTL_MINUTES,
+            metadata={STOPPED_AT_KEY: stopped_at.isoformat()},
         )
     except ConflictError:
-        return
+        previous = await _stopped_at(session_id)
+        if previous is None or stopped_at > previous:
+            await client.threads.update(
+                thread_id=marker, metadata={STOPPED_AT_KEY: stopped_at.isoformat()}
+            )
 
 
-async def _is_stopped(session_id: str) -> bool:
+async def _stopped_at(session_id: str) -> datetime | None:
     try:
-        await get_client().threads.get(_stop_marker_id(session_id))
+        marker = await get_client().threads.get(_stop_marker_id(session_id))
     except Exception as exc:
         if common.is_not_found_error(exc):
-            return False
+            return None
         raise
-    return True
+    raw = _metadata(marker).get(STOPPED_AT_KEY)
+    try:
+        return datetime.fromisoformat(raw) if isinstance(raw, str) else None
+    except ValueError:
+        logger.warning("Unreadable Linear stop time", extra={"linear_session_id": session_id})
+        return None
+
+
+async def _stopped_since(session_id: str, requested_at: datetime) -> bool:
+    """Whether the session was stopped at or after this request was made."""
+    stopped_at = await _stopped_at(session_id)
+    return stopped_at is not None and stopped_at >= requested_at
 
 
 async def _stop_after_undelegation(event: DelegationRemoved) -> None:

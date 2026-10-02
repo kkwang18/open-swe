@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -26,19 +26,35 @@ def _event(name: str) -> SessionCreated | SessionPrompted:
 
 class _FakeThreads:
     def __init__(self) -> None:
-        self.ids: set[str] = set()
+        self.metadata: dict[str, dict[str, object]] = {}
 
-    async def create(self, *, thread_id: str, if_exists: str, ttl: int) -> None:
-        if thread_id in self.ids:
+    @property
+    def ids(self) -> set[str]:
+        return set(self.metadata)
+
+    async def create(
+        self,
+        *,
+        thread_id: str,
+        if_exists: str,
+        ttl: int | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        if thread_id in self.metadata:
+            if if_exists == "do_nothing":
+                return
             response = httpx.Response(409, request=httpx.Request("POST", "http://langgraph"))
             raise ConflictError("exists", response=response, body=None)
-        self.ids.add(thread_id)
+        self.metadata[thread_id] = dict(metadata or {})
+
+    async def update(self, *, thread_id: str, metadata: dict[str, object]) -> None:
+        self.metadata[thread_id].update(metadata)
 
     async def get(self, thread_id: str) -> dict[str, object]:
-        if thread_id not in self.ids:
+        if thread_id not in self.metadata:
             response = httpx.Response(404, request=httpx.Request("GET", "http://langgraph"))
             raise NotFoundError("missing", response=response, body=None)
-        return {"thread_id": thread_id, "metadata": {}, "status": "idle"}
+        return {"thread_id": thread_id, "metadata": self.metadata[thread_id], "status": "idle"}
 
 
 class _FakeRuns:
@@ -125,6 +141,80 @@ async def test_first_request_on_a_new_issue_starts_a_run(monkeypatch):
 
     created = _event("agent_session_created_delegation")
     await worker.process_linear_event(created)
+
+    assert dispatched == [created.session_id]
+
+
+def _dispatching_worker(monkeypatch, client, on_authorize=None):
+    """Patch the worker so a request authorizes and dispatches without Linear or GitHub."""
+    dispatched: list[str] = []
+
+    async def post_activity(session_id, content, **_):
+        return None
+
+    async def requester(author, issue):
+        return author
+
+    async def resolve_actor(user, session_id, issue):
+        if on_authorize is not None:
+            await on_authorize()
+        return Actor(provider_user_id=user.id, github_login="octocat")
+
+    async def choose_repo(request, actor, metadata, issue, session_id):
+        return {"owner": "octocat", "name": "hello-world"}
+
+    async def process_linear_issue(issue_data, repo, *, linear_session, **_):
+        dispatched.append(linear_session.id)
+
+    async def start_delegated_issue(issue_id):
+        return True
+
+    monkeypatch.setattr(worker, "get_client", lambda: client)
+    monkeypatch.setattr(worker, "post_activity", post_activity)
+    monkeypatch.setattr(worker, "dashboard_thread_url", lambda _thread_id: None)
+    monkeypatch.setattr(worker, "requester", requester)
+    monkeypatch.setattr(worker, "resolve_actor", resolve_actor)
+    monkeypatch.setattr(worker, "choose_repo", choose_repo)
+    monkeypatch.setattr(worker, "process_linear_issue", process_linear_issue)
+    monkeypatch.setattr(worker, "start_delegated_issue", start_delegated_issue)
+    return dispatched
+
+
+async def test_stop_while_the_request_is_being_authorized_dispatches_nothing(monkeypatch):
+    client = _FakeClient()
+    created = _event("agent_session_created_delegation")
+    stop = _event("agent_session_prompted_stop")
+    stop = SessionPrompted(
+        **{**stop.__dict__, "session_id": created.session_id, "created_at": created.created_at}
+    )
+
+    async def stop_now():
+        await worker.process_linear_event(stop)
+
+    dispatched = _dispatching_worker(monkeypatch, client, on_authorize=stop_now)
+
+    await worker.process_linear_event(created)
+
+    assert dispatched == []
+
+
+async def test_a_message_after_a_stop_still_runs(monkeypatch):
+    client = _FakeClient()
+    created = _event("agent_session_created_delegation")
+    stop = _event("agent_session_prompted_stop")
+    stop = SessionPrompted(**{**stop.__dict__, "session_id": created.session_id})
+    later = _event("agent_session_prompted")
+    later = SessionPrompted(
+        **{
+            **later.__dict__,
+            "session_id": created.session_id,
+            "created_at": stop.created_at + timedelta(seconds=30),
+        }
+    )
+    dispatched = _dispatching_worker(monkeypatch, client)
+
+    await worker.process_linear_event(stop)
+    await worker.process_linear_event(later)
 
     assert dispatched == [created.session_id]
 
