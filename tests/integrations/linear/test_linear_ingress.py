@@ -163,3 +163,13 @@ def test_only_a_move_to_a_completed_status_is_an_issue_completion(state_type, co
     now = _created_at("issue_delegated")
     event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
     assert isinstance(event, IssueCompleted) is completed
+
+
+def test_an_issue_without_a_description_still_starts_a_session():
+    payload = _payload("agent_session_created_delegation")
+    payload["agentSession"]["issue"]["description"] = None
+    payload["agentSession"]["creator"]["email"] = None
+    now = _created_at("agent_session_created_delegation")
+    event = LinearIntegration(now=lambda: now)._event("delivery-1", json.dumps(payload).encode())
+    assert isinstance(event, SessionCreated)
+    assert event.issue.description == ""

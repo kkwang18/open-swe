@@ -2,19 +2,28 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, JsonValue
 
 AgentSignal = Literal["stop", "continue", "auth", "select"]
+
+
+def _empty_if_none(value: object) -> object:
+    return "" if value is None else value
+
+
+# Linear sends null for text left empty, such as an issue with no description; a
+# plain default only covers a missing field, and a failed parse drops the delivery.
+OptionalText = Annotated[str, BeforeValidator(_empty_if_none)]
 
 
 class LinearUser(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
-    name: str = ""
-    email: str = ""
+    name: OptionalText = ""
+    email: OptionalText = ""
 
 
 class LinearIssue(BaseModel):
@@ -22,10 +31,10 @@ class LinearIssue(BaseModel):
 
     id: str
     identifier: str
-    title: str = ""
-    description: str = ""
-    url: str = ""
-    team_id: str = Field("", alias="teamId")
+    title: OptionalText = ""
+    description: OptionalText = ""
+    url: OptionalText = ""
+    team_id: OptionalText = Field("", alias="teamId")
 
 
 @dataclass(frozen=True)
@@ -86,18 +95,18 @@ LinearEvent = SessionCreated | SessionPrompted | DelegationRemoved | IssueComple
 
 
 class Envelope(BaseModel):
-    type: str = ""
-    action: str = ""
+    type: OptionalText = ""
+    action: OptionalText = ""
     created_at: datetime | None = Field(None, alias="createdAt")
     webhook_timestamp: int = Field(alias="webhookTimestamp")
 
 
 class _Comment(BaseModel):
-    body: str = ""
+    body: OptionalText = ""
 
 
 class _SourceMetadata(BaseModel):
-    type: str = ""
+    type: OptionalText = ""
 
 
 class _AgentSession(BaseModel):
@@ -110,7 +119,7 @@ class _AgentSession(BaseModel):
 
 
 class _ActivityContent(BaseModel):
-    body: str = ""
+    body: OptionalText = ""
 
 
 class _AgentActivity(BaseModel):
@@ -121,11 +130,11 @@ class _AgentActivity(BaseModel):
 
 
 class _GuidanceTeam(BaseModel):
-    name: str = ""
+    name: OptionalText = ""
 
 
 class _GuidanceOrigin(BaseModel):
-    type: str = ""
+    type: OptionalText = ""
     team: _GuidanceTeam | None = None
 
 
@@ -139,12 +148,12 @@ class GuidanceRule(BaseModel):
 class AgentSessionPayload(BaseModel):
     agent_session: _AgentSession = Field(alias="agentSession")
     agent_activity: _AgentActivity | None = Field(None, alias="agentActivity")
-    prompt_context: str = Field("", alias="promptContext")
+    prompt_context: OptionalText = Field("", alias="promptContext")
     guidance: list[GuidanceRule] | None = None
 
 
 class _IssueState(BaseModel):
-    type: str = ""
+    type: OptionalText = ""
 
 
 class _IssueData(LinearIssue):
