@@ -92,7 +92,6 @@ class SourceContext(BaseModel):
 
     slack_thread: SlackThreadRef | None = None
     linear_issue: LinearIssueRef | None = None
-    linear_session: LinearSessionRef | None = None
     github_issue: GitHubIssueRef | None = None
     pr_number: int | None = None
 

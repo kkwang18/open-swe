@@ -3,14 +3,14 @@
 import asyncio
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage
-from pydantic import JsonValue
+from langgraph_sdk.schema import Run
+from pydantic import JsonValue, ValidationError
 
 from agent.integrations.linear.client import linear_activity_id, post_activity
-from agent.middleware.message_content import content_to_text
-from agent.middleware.require_user_reply import turn_tail
+from agent.source_context import LinearSessionRef
 from agent.utils.dashboard_links import dashboard_thread_url
 
 logger = logging.getLogger(__name__)
@@ -18,8 +18,37 @@ logger = logging.getLogger(__name__)
 REPLY_ATTEMPTS = 3
 
 
+def run_session(run: Run) -> LinearSessionRef | None:
+    """The Linear session a run reports to.
+
+    Only the run's own config says which: an issue thread outlives its sessions, and
+    runs started elsewhere, such as from the dashboard, report to none.
+    """
+    kwargs = run.get("kwargs")
+    config = kwargs.get("config") if isinstance(kwargs, Mapping) else None
+    configurable = config.get("configurable") if isinstance(config, Mapping) else None
+    session = configurable.get("linear_session") if isinstance(configurable, Mapping) else None
+    if not isinstance(session, Mapping):
+        return None
+    try:
+        ref = LinearSessionRef.model_validate(session)
+    except ValidationError:
+        logger.warning("Unreadable Linear session on run", exc_info=True)
+        return None
+    return ref if ref.id else None
+
+
+def run_session_id(run: Run) -> str | None:
+    session = run_session(run)
+    return session.id if session is not None else None
+
+
 def final_answer(messages: Sequence[BaseMessage]) -> str:
     """The text of the turn's last assistant message, which is the run's answer."""
+    # Imported here so the web app, which loads this module, stays clear of the agent stack.
+    from agent.middleware.message_content import content_to_text
+    from agent.middleware.require_user_reply import turn_tail
+
     for message in reversed(turn_tail(messages)):
         if isinstance(message, AIMessage):
             text = content_to_text(message.content).strip()

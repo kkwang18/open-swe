@@ -11,7 +11,7 @@ from typing import Literal
 
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
-from langgraph_sdk.schema import Run, Thread
+from langgraph_sdk.schema import Thread
 from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from agent.integrations.base import Denied, PendingQuestion, SelectOption
@@ -39,8 +39,9 @@ from agent.integrations.linear.events import (
     SessionCreated,
     SessionPrompted,
 )
+from agent.integrations.linear.session import run_session, run_session_id
 from agent.linear.webhook import process_linear_issue
-from agent.source_context import LinearSessionRef, SourceContext
+from agent.source_context import LinearSessionRef
 from agent.thread_ids import linear_issue_thread_id
 from agent.threads.creation import create_lock_thread
 from agent.threads.handlers import interrupt_transcript_turns
@@ -153,7 +154,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             event.author,
             event.body,
             None,
-            guidance=event.guidance or _session_guidance(metadata, event.session_id),
+            guidance=event.guidance or await _session_guidance(thread_id, event.session_id),
         )
         return
     if event.author.id != pending.requester_id:
@@ -247,7 +248,7 @@ async def _run(
             repo, session_id, thread_id, issue, user, request, comment_id, prompt_context, guidance
         )
         return
-    await _close_superseded_session(thread, session_id)
+    await _close_superseded_sessions(thread_id, session_id)
     issue_data: dict[str, object] = {
         "id": issue.id,
         "title": issue.title,
@@ -376,10 +377,13 @@ def _pending_question(metadata: Mapping[str, object], session_id: str) -> _Pendi
     return pending if pending.session_id == session_id else None
 
 
-def _session_guidance(metadata: Mapping[str, object], session_id: str) -> str:
-    """The guidance Linear sent when this session started, kept with its earlier run."""
-    session = SourceContext.from_metadata(metadata).linear_session
-    return session.guidance if session is not None and session.id == session_id else ""
+async def _session_guidance(thread_id: str, session_id: str) -> str:
+    """The guidance Linear sent when this session started, kept on the session's latest run."""
+    for run in await get_client().runs.list(thread_id, limit=50):
+        session = run_session(run)
+        if session is not None and session.id == session_id:
+            return session.guidance
+    return ""
 
 
 async def _set_pending_question(thread_id: str, pending: _PendingQuestion | None) -> None:
@@ -404,18 +408,21 @@ def _metadata(thread: Thread | None) -> Mapping[str, object]:
     return metadata if isinstance(metadata, Mapping) else {}
 
 
-async def _close_superseded_session(thread: Thread | None, session_id: str) -> None:
-    """One run per issue thread: a new session interrupts the running one, so say so there."""
-    if thread is None or thread["status"] != "busy":
-        return
-    previous = SourceContext.from_metadata(_metadata(thread)).linear_session
-    if previous is None or not previous.id or previous.id == session_id:
-        return
+async def _close_superseded_sessions(thread_id: str, session_id: str) -> None:
+    """One run per issue thread: a new session interrupts the running ones, so say so there."""
+    client = get_client()
+    previous: set[str] = set()
+    for status in ("pending", "running"):
+        for run in await client.runs.list(thread_id, status=status, limit=100):
+            other = run_session_id(run)
+            if other and other != session_id:
+                previous.add(other)
     try:
-        await post_activity(
-            previous.id,
-            {"type": "response", "body": "Continued in a newer request on this issue."},
-        )
+        for other in sorted(previous):
+            await post_activity(
+                other,
+                {"type": "response", "body": "Continued in a newer request on this issue."},
+            )
     except Exception:
         logger.exception("Closing the superseded Linear session failed")
 
@@ -460,7 +467,7 @@ async def _cancel_session_runs(thread_id: str, session_ids: set[str] | None) -> 
     cancelled: dict[str, str] = {}
     for status in ("pending", "running"):
         for run in await client.runs.list(thread_id, status=status, limit=100):
-            session_id = _run_session_id(run)
+            session_id = run_session_id(run)
             if session_id and (session_ids is None or session_id in session_ids):
                 cancelled[run["run_id"]] = session_id
     if cancelled:
@@ -469,12 +476,3 @@ async def _cancel_session_runs(thread_id: str, session_ids: set[str] | None) -> 
         )
         await interrupt_transcript_turns(thread_id, sorted(cancelled))
     return set(cancelled.values())
-
-
-def _run_session_id(run: Run) -> str | None:
-    kwargs = run.get("kwargs")
-    config = kwargs.get("config") if isinstance(kwargs, Mapping) else None
-    configurable = config.get("configurable") if isinstance(config, Mapping) else None
-    session = configurable.get("linear_session") if isinstance(configurable, Mapping) else None
-    session_id = session.get("id") if isinstance(session, Mapping) else None
-    return session_id if isinstance(session_id, str) and session_id else None

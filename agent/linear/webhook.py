@@ -274,8 +274,9 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
     configurable["environment"] = workspace
     source_context: dict[str, Any] = {"linear_issue": configurable["linear_issue"]}
     if linear_session is not None:
+        # On the run only: the thread outlives the session, and runs started from the
+        # dashboard copy the thread's source context.
         configurable["linear_session"] = linear_session.model_dump(mode="json")
-        source_context["linear_session"] = configurable["linear_session"]
 
     await common.upsert_agent_thread_metadata(
         thread_id,
