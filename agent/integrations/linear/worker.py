@@ -39,7 +39,7 @@ from agent.integrations.linear.events import (
     SessionCreated,
     SessionPrompted,
 )
-from agent.integrations.linear.session import run_session_id
+from agent.integrations.linear.session import run_session, run_session_id
 from agent.linear.webhook import process_linear_issue
 from agent.source_context import LinearSessionRef
 from agent.thread_ids import linear_issue_thread_id
@@ -154,7 +154,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             event.author,
             event.body,
             None,
-            guidance=event.guidance or _session_guidance(metadata, event.session_id),
+            guidance=event.guidance or await _session_guidance(thread_id, event.session_id),
         )
         return
     if event.author.id != pending.requester_id:
@@ -377,10 +377,13 @@ def _pending_question(metadata: Mapping[str, object], session_id: str) -> _Pendi
     return pending if pending.session_id == session_id else None
 
 
-def _session_guidance(metadata: Mapping[str, object], session_id: str) -> str:
-    """The guidance Linear sent when this session started, kept with its earlier run."""
-    session = SourceContext.from_metadata(metadata).linear_session
-    return session.guidance if session is not None and session.id == session_id else ""
+async def _session_guidance(thread_id: str, session_id: str) -> str:
+    """The guidance Linear sent when this session started, kept on the session's latest run."""
+    for run in await get_client().runs.list(thread_id, limit=50):
+        session = run_session(run)
+        if session is not None and session.id == session_id:
+            return session.guidance
+    return ""
 
 
 async def _set_pending_question(thread_id: str, pending: _PendingQuestion | None) -> None:
