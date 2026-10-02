@@ -648,7 +648,7 @@ async def test_tagged_comment_on_an_agent_pr_continues_the_thread_that_opened_it
     # thread, for example a Linear issue's, whose request produced the PR.
     opening_thread = "linear-issue-thread"
     pull_request = PullRequest(
-        owner="kkwang18",
+        owner="acme",
         repo="open-swe",
         number=8,
         opening_head_sha="head-sha",
@@ -661,11 +661,11 @@ async def test_tagged_comment_on_an_agent_pr_continues_the_thread_that_opened_it
         "extract_pr_context",
         AsyncMock(
             return_value=(
-                {"owner": "kkwang18", "name": "open-swe"},
+                {"owner": "acme", "name": "open-swe"},
                 8,
-                "open-swe/oswe-24-readme-line",
+                "open-swe/eng-24-readme-line",
                 "octocat",
-                "https://github.com/kkwang18/open-swe/pull/8",
+                "https://github.com/acme/open-swe/pull/8",
                 9,
                 None,
             )
@@ -713,7 +713,7 @@ async def test_tagged_comment_on_an_agent_pr_continues_the_thread_that_opened_it
     expected = (
         opening_thread
         if continues_opening_thread
-        else github_webhooks.pr_comment_thread_id("kkwang18", "open-swe", 8)
+        else github_webhooks.pr_comment_thread_id("acme", "open-swe", 8)
     )
     assert dispatch.call_args.args[0] == expected
 

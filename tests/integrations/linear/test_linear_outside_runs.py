@@ -4,7 +4,7 @@ from langgraph_sdk.errors import NotFoundError
 
 from agent.integrations.linear import outside, worker
 from agent.integrations.linear.events import SessionCreated
-from tests.integrations.linear.test_worker import _event, _FakeClient
+from tests.integrations.linear.test_linear_worker import _event, _FakeClient
 
 
 @pytest.mark.parametrize(
