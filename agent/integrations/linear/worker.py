@@ -29,6 +29,7 @@ from agent.integrations.linear.client import (
     linear_activity_id,
     post_activity,
     set_session_link,
+    start_delegated_issue,
 )
 from agent.integrations.linear.events import (
     DelegationRemoved,
@@ -264,6 +265,19 @@ async def _run(
         github_login=actor.github_login,
         prompt_context=prompt_context,
     )
+    # Linear leaves issues an automation delegated in triage for a person to pick up.
+    if author is not None:
+        await _start_issue(issue.id)
+
+
+async def _start_issue(issue_id: str) -> None:
+    """Show the issue as in progress once work begins, as Linear asks of agents."""
+    try:
+        await start_delegated_issue(issue_id)
+    except Exception:
+        logger.exception(
+            "Moving the Linear issue to started failed", extra={"linear_issue_id": issue_id}
+        )
 
 
 async def _save_and_ask(
