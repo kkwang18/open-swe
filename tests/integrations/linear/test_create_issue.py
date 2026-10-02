@@ -32,6 +32,11 @@ async def test_issue_from_slack_needs_a_team_and_credits_the_requester(monkeypat
     monkeypatch.setattr(tool, "list_teams", list_teams)
     monkeypatch.setattr(tool, "create_issue", create_issue)
     monkeypatch.setattr(tool, "record_slack_origin", record_slack_origin)
+
+    async def find_open_issue(team_id, title, mentioning):
+        return None
+
+    monkeypatch.setattr(tool, "find_open_issue", find_open_issue)
     monkeypatch.setattr(
         tool, "get_config", lambda: {"configurable": {"slack_thread": slack_thread}}
     )
@@ -52,3 +57,31 @@ async def test_issue_from_slack_needs_a_team_and_credits_the_requester(monkeypat
         )
     ]
     assert origins == [("issue-7", "C1", "1.0")]
+
+
+async def test_a_request_that_already_has_an_open_issue_files_no_duplicate(monkeypatch):
+    searched: list[tuple[str, str, str]] = []
+
+    async def list_teams():
+        return TEAMS[:1]
+
+    async def find_open_issue(team_id, title, mentioning):
+        searched.append((team_id, title, mentioning))
+        return CreatedIssue(id="i-5", identifier="ENG-5", url="https://linear.app/acme/issue/ENG-5")
+
+    async def create_issue(team_id, title, description):
+        raise AssertionError("a duplicate was filed")
+
+    slack_thread = {"channel_id": "C1", "thread_ts": "1.0", "permalink": "https://slack/p1"}
+    monkeypatch.setattr(tool, "list_teams", list_teams)
+    monkeypatch.setattr(tool, "find_open_issue", find_open_issue)
+    monkeypatch.setattr(tool, "create_issue", create_issue)
+    monkeypatch.setattr(
+        tool, "get_config", lambda: {"configurable": {"slack_thread": slack_thread}}
+    )
+
+    result = await tool.create_linear_issue("Fix login", "Users get a 500.")
+
+    assert result["identifier"] == "ENG-5"
+    assert result["already_existed"] is True
+    assert searched == [("t-eng", "Fix login", "https://slack/p1")]

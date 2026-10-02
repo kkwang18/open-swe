@@ -10,6 +10,7 @@ from agent.integrations.linear.client import (
     LinearGraphQLError,
     LinearTeam,
     create_issue,
+    find_open_issue,
     list_teams,
 )
 from agent.integrations.linear.slack_origin import SlackOrigin, record_slack_origin
@@ -32,18 +33,22 @@ def _team(teams: list[LinearTeam], wanted: str) -> LinearTeam | None:
     return partial[0] if len(partial) == 1 else None
 
 
-async def _requested_from_slack(cfg: RunConfig) -> str:
+async def _slack_link(cfg: RunConfig) -> str:
+    slack = cfg.slack_thread
+    if slack is None or slack.thread_ts == CONCIERGE_TS:
+        return ""
+    # The run's Slack context does not always carry the link; Slack has it.
+    return slack.permalink or await get_slack_permalink(slack.channel_id, slack.thread_ts) or ""
+
+
+def _requested_from_slack(cfg: RunConfig, link: str) -> str:
     slack = cfg.slack_thread
     if slack is None:
         return ""
-    permalink = slack.permalink
-    if not permalink and slack.thread_ts != CONCIERGE_TS:
-        # The run's Slack context does not always carry the link; Slack has it.
-        permalink = await get_slack_permalink(slack.channel_id, slack.thread_ts) or ""
     who = (
         f"Requested by {slack.triggering_user_name}" if slack.triggering_user_name else "Requested"
     )
-    return f"{who} in Slack: {permalink}" if permalink else f"{who} in Slack."
+    return f"{who} in Slack: {link}" if link else f"{who} in Slack."
 
 
 async def _remember_slack_thread(cfg: RunConfig, issue_id: str) -> None:
@@ -77,7 +82,18 @@ async def create_linear_issue(title: str, description: str, team: str = "") -> d
             names: list[JsonValue] = [t.name for t in teams]
             reason = f"No team matches {team!r}." if team.strip() else "Several teams exist."
             return {"success": False, "error": f"{reason} Ask which team.", "teams": names}
-        footer = await _requested_from_slack(cfg)
+        link = await _slack_link(cfg)
+        # A run that lost its history may file the same request again; Linear remembers.
+        if existing := await find_open_issue(match.id, title.strip(), link):
+            return {
+                "success": True,
+                "already_existed": True,
+                "identifier": existing.identifier,
+                "url": existing.url,
+                "team": match.name,
+                "next_step": "This request already has an open issue; share its link.",
+            }
+        footer = _requested_from_slack(cfg, link)
         body = f"{description.strip()}\n\n---\n{footer}" if footer else description.strip()
         issue = await create_issue(match.id, title.strip(), body)
     except (LinearGraphQLError, httpx.HTTPError) as exc:

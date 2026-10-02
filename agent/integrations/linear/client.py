@@ -374,3 +374,38 @@ async def create_issue(team_id: str, title: str, description: str) -> CreatedIss
         )
     )
     return data.issue_create.issue
+
+
+class _IssueNodes(BaseModel):
+    nodes: list[CreatedIssue]
+
+
+class _IssuesData(BaseModel):
+    issues: _IssueNodes
+
+
+_OPEN_ISSUE_BY_TITLE = """
+query OpenIssueByTitle($filter: IssueFilter!) {
+  issues(filter: $filter, first: 1) { nodes { id identifier url } }
+}
+"""
+
+
+async def find_open_issue(team_id: str, title: str, mentioning: str) -> CreatedIssue | None:
+    """An open issue the app already created in the team with this title.
+
+    With ``mentioning``, the issue's description must contain it too, such as the
+    Slack thread the request came from.
+    """
+    issue_filter: dict[str, JsonValue] = {
+        "team": {"id": {"eq": team_id}},
+        "title": {"eqIgnoreCase": title},
+        "creator": {"isMe": {"eq": True}},
+        "state": {"type": {"nin": ["completed", "canceled"]}},
+    }
+    if mentioning:
+        issue_filter["description"] = {"contains": mentioning}
+    data = _IssuesData.model_validate(
+        await linear_graphql(_OPEN_ISSUE_BY_TITLE, {"filter": issue_filter})
+    )
+    return data.issues.nodes[0] if data.issues.nodes else None
