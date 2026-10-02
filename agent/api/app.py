@@ -13,6 +13,7 @@ from agent.api.tracing import add_trace_resource_names, configure_datadog_enviro
 from agent.config import ENV
 from agent.dashboard import router as dashboard_router
 from agent.github.routes import router as github_webhook_router
+from agent.integrations.gitlab.routes import router as gitlab_webhook_router
 from agent.linear.routes import router as linear_webhook_router
 from agent.openai_responses.routes import router as sandbox_openai_router
 from agent.sandboxes.tool_routes import router as sandbox_tool_router
@@ -37,6 +38,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     from agent.dashboard.admin import configured_admins
     from agent.dashboard.oauth import validate_github_login_allowlist
     from agent.database.analytics import activate_reporting, load_workspace
+    from agent.integrations.gitlab.client import bot_user as gitlab_bot_user
+    from agent.integrations.gitlab.client import gitlab_configured
     from agent.integrations.linear.client import app_user_id as linear_app_user_id
     from agent.integrations.linear.token import linear_app_configured
     from agent.sandboxes.providers.registry import validate_sandbox_startup_config
@@ -101,6 +104,19 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Linear agent app authentication failed")
         else:
             logger.info("Linear agent app authenticated", extra={"linear_app_user_id": app_user})
+    if gitlab_configured():
+        try:
+            # Caches the bot user, so a bad GitLab token shows up at boot and
+            # deliveries can tell the bot's own notes apart.
+            gitlab_bot = await gitlab_bot_user()
+        except Exception:  # noqa: BLE001
+            # Startup continues: the webhook retries on its first delivery, and
+            # nothing else depends on GitLab.
+            logger.exception("GitLab bot authentication failed")
+        else:
+            logger.info(
+                "GitLab bot authenticated", extra={"gitlab_bot_username": gitlab_bot.username}
+            )
     try:
         await load_workspace()
         await activate_reporting()
@@ -154,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(plan_router)
     app.include_router(workflow_approval_router)
     app.include_router(linear_webhook_router)
+    app.include_router(gitlab_webhook_router)
     app.include_router(slack_webhook_router)
     app.include_router(health_router)
     app.include_router(github_webhook_router)

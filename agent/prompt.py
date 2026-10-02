@@ -53,7 +53,7 @@ def _render_source_guidance(
         name = "linear-session"
     elif source == "slack" and slack_context:
         name = "slack-by-the-way" if slack_by_the_way else "slack-ask" if slack_ask else "slack"
-    elif source in {"linear", "github", "schedule", "dashboard"}:
+    elif source in {"linear", "github", "gitlab", "schedule", "dashboard"}:
         name = source
     else:
         name = "generic"
@@ -139,6 +139,8 @@ def construct_system_prompt(
     local_checkout: bool = False,
     recent_thread_context: str | None = None,
     workspace_repos: list[str] | None = None,
+    gitlab_clone_url: str = "",
+    gitlab_access: bool = True,
 ) -> str:
     """Render the agent's system prompt.
 
@@ -151,6 +153,8 @@ def construct_system_prompt(
         "system/main",
         working_dir=working_dir,
         local_checkout=local_checkout,
+        gitlab_clone_url=gitlab_clone_url,
+        gitlab_access=gitlab_access,
         desktop=source == "desktop",
         admin_workspaces=admin_workspaces,
         sole_writer=sole_writer,

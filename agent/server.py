@@ -94,6 +94,9 @@ from agent.input_messages import (
     person_introduction,
     visible_dynamic_context_hashes,
 )
+from agent.integrations.gitlab.access import gitlab_access_allowed
+from agent.integrations.gitlab.repo import gitlab_clone_url, gitlab_commit_identity
+from agent.integrations.gitlab.tools import gitlab_reply
 from agent.integrations.linear.ask import ask_with_options
 from agent.integrations.linear.create_issue import create_linear_issue
 from agent.integrations.linear.middleware import LinearSessionMiddleware
@@ -1236,7 +1239,7 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 participants = await _thread_participants(
                     self._thread_id,
                     self._config or {},
-                    triggering_user_identity,
+                    triggering_user_identity or await gitlab_commit_identity(cfg),
                     sender_person_id=subject_id,
                     sender_display_name=(
                         cfg.slack_thread.triggering_user_name if cfg.slack_thread else ""
@@ -1328,6 +1331,8 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 continued_from_collaborative=bool(cfg.continued_from_thread_id),
                 local_checkout=bridged,
                 recent_thread_context=recent_thread_context,
+                gitlab_clone_url=gitlab_clone_url(cfg),
+                gitlab_access=cfg.gitlab is None or await gitlab_access_allowed(cfg),
             ),
         }
 
@@ -1640,6 +1645,8 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         tool_access = await resolve_access(cfg, login=profile_login)
 
     stop_summary_mode = cfg.stop_summary is True
+    # Only a run allowed to act on GitLab can reply there; others on the thread can still talk.
+    gitlab_access = cfg.source == "gitlab" and await gitlab_access_allowed(cfg)
     async with aphase(thread_id, "factory.bridged_thread"):
         cli_result_required = (
             not local_run and not stop_summary_mode and await _bridged_thread(thread_id)
@@ -1698,6 +1705,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
             if cfg.source == "linear" and cfg.linear_session and cfg.linear_session.id
             else ()
         ),
+        *((gitlab_reply,) if gitlab_access else ()),
         manage_baby_sit,
         expedite_pr_approval,
         merge_expedited_pr,

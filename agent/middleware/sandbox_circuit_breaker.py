@@ -10,6 +10,8 @@ from langgraph_sdk import get_client
 from agent.github.app import get_github_app_installation_token
 from agent.github.comments import post_github_comment
 from agent.github.thread_token import resolve_thread_github_token
+from agent.integrations.gitlab.access import gitlab_access_allowed
+from agent.integrations.gitlab.notifications import post_gitlab_failure
 from agent.integrations.linear.session import post_session_error
 from agent.linear.notifications import post_linear_notification
 from agent.run_config import RunConfig
@@ -139,6 +141,12 @@ async def post_sandbox_unreachable_notification(
 
     if cfg.linear_issue and cfg.linear_issue.id:
         await post_linear_notification(cfg.linear_issue.id, message)
+        return
+
+    if cfg.source == "gitlab" and cfg.gitlab is not None:
+        # A run that may not act on GitLab cannot post there either; it tells no one.
+        if await gitlab_access_allowed(cfg) and await post_gitlab_failure(cfg.gitlab, message):
+            logger.info("Sent sandbox unreachable notification to GitLab")
         return
 
     github_target = _get_github_target(cfg)

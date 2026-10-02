@@ -13,6 +13,8 @@ import uuid
 __all__ = [
     "baby_sit_lock_thread_id",
     "github_issue_thread_id",
+    "gitlab_issue_thread_id",
+    "gitlab_merge_request_thread_id",
     "linear_issue_thread_id",
     "pr_comment_thread_id",
     "review_chat_thread_id",
@@ -73,6 +75,15 @@ def linear_issue_thread_id(issue_id: str) -> str:
 
 def github_issue_thread_id(issue_id: str) -> str:
     return _sha256_uuid(f"github-issue:{issue_id}")
+
+
+def gitlab_issue_thread_id(host: str, project_id: int, iid: int) -> str:
+    return _sha256_uuid(f"gitlab-issue:{host}/{project_id}/{iid}")
+
+
+def gitlab_merge_request_thread_id(host: str, project_id: int, iid: int) -> str:
+    """Agent thread for a merge request no Open SWE thread opened, keyed by the MR itself."""
+    return _sha256_uuid(f"gitlab-merge-request:{host}/{project_id}/{iid}")
 
 
 def thread_id_from_branch(branch_name: str) -> str | None:

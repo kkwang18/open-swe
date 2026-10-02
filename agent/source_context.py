@@ -87,12 +87,29 @@ class GitHubIssueRef(BaseModel):
     url: str = ""
 
 
+class GitLabRef(BaseModel):
+    """The GitLab issue or merge request a thread belongs to."""
+
+    model_config = ConfigDict(extra="allow")
+
+    host: str = ""
+    project_id: int | None = None
+    project_path: str = ""
+    project_url: str = ""
+    kind: str = ""
+    iid: int | None = None
+    url: str = ""
+    # The discussion the run answers in; set on the run, since each mention has its own.
+    discussion_id: str = ""
+
+
 class SourceContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     slack_thread: SlackThreadRef | None = None
     linear_issue: LinearIssueRef | None = None
     github_issue: GitHubIssueRef | None = None
+    gitlab: GitLabRef | None = None
     pr_number: int | None = None
 
     @classmethod

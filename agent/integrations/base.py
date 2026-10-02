@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     # The webhook routes import this module; the agent stack must stay out of the web app.
     from agent.middleware.dynamic_tools import IntegrationGroup
 
-IntegrationName = Literal["slack", "github", "linear"]
+IntegrationName = Literal["slack", "github", "linear", "gitlab"]
 
 
 @dataclass(frozen=True)

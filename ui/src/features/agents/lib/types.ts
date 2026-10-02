@@ -22,6 +22,7 @@ export type AgentStatus =
 export type AgentSource =
   | "dashboard"
   | "github"
+  | "gitlab"
   | "slack"
   | "linear"
   | "schedule"

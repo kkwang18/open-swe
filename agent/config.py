@@ -299,6 +299,17 @@ ENV.var(
     "LINEAR_CLIENT_ID", "Linear agent app client id; its client-credentials token acts as the app."
 )
 ENV.var("LINEAR_CLIENT_SECRET", "Linear agent app client secret.", secret=True)
+ENV.var("GITLAB_URL", "GitLab instance URL for the GitLab integration; defaults to gitlab.com.")
+ENV.var(
+    "GITLAB_TOKEN",
+    "The GitLab bot user's personal access token (api, read/write_repository scopes).",
+    secret=True,
+)
+ENV.var(
+    "GITLAB_WEBHOOK_SECRET",
+    "The GitLab webhook's signing token (whsec_...) or legacy secret token.",
+    secret=True,
+)
 
 # --- Dashboard ------------------------------------------------------------------------------
 ENV.var(
