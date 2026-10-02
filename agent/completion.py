@@ -199,6 +199,16 @@ async def _post_failure_reply(
     """Post a failure reply to the run's originating channel. Best-effort."""
     source = metadata.get("source")
     ctx = SourceContext.from_metadata(metadata)
+    # A run on a Linear issue's thread reports to its own session whichever surface
+    # started it, and a GitHub follow-up also marks the thread's source as github.
+    linear_session_id = (
+        await _linear_session_of(thread_id, run_id) if ctx.linear_issue is not None else None
+    )
+    linear_posted = False
+    if linear_session_id:
+        linear_posted = await post_session_error(
+            linear_session_id, run_id, _failure_text(status, reason_code=reason_code)
+        )
 
     if source == "slack" or ctx.slack_thread is not None:
         location = ctx.slack_location
@@ -214,10 +224,8 @@ async def _post_failure_reply(
         return False
 
     if source == "linear":
-        if session_id := await _linear_session_of(thread_id, run_id):
-            return await post_session_error(
-                session_id, run_id, _failure_text(status, reason_code=reason_code)
-            )
+        if linear_session_id:
+            return linear_posted
         if ctx.linear_issue and ctx.linear_issue.id:
             return await post_linear_notification(
                 ctx.linear_issue.id, _failure_text(status, reason_code=reason_code)
@@ -238,8 +246,10 @@ async def _post_failure_reply(
                     _failure_text(status, reason_code=reason_code),
                     token=token,
                 )
-        return False
+        return linear_posted
 
+    if linear_posted:
+        return True
     logger.info("No failure-reply channel for thread %s (source=%s)", thread_id, source)
     return False
 

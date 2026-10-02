@@ -251,3 +251,37 @@ async def test_only_a_linear_issue_thread_looks_up_its_run_for_a_session(
 
     assert looked_up == (["run-1"] if linear_issue_thread else [])
     assert replies.await_count == (1 if linear_issue_thread else 0)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_github_follow_up_on_a_linear_issue_ends_its_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The GitHub follow-up marked the thread's source github; its run has a session.
+    metadata = {
+        "source": "github",
+        "repo": {"owner": "acme", "name": "web"},
+        "source_context": {"linear_issue": {"id": "issue-1"}, "pr_number": 9},
+    }
+
+    class Runs:
+        async def get(self, thread_id: str, run_id: str) -> dict[str, Any]:
+            configurable = {"linear_session": {"id": "session-1"}}
+            return {"run_id": run_id, "kwargs": {"config": {"configurable": configurable}}}
+
+    class Client(_FakeClient):
+        runs = Runs()
+
+    session_errors = AsyncMock(return_value=True)
+    comments = AsyncMock(return_value=True)
+    monkeypatch.setattr(completion, "langgraph_client", lambda: Client(metadata))
+    monkeypatch.setattr(completion, "post_session_error", session_errors)
+    monkeypatch.setattr(completion, "post_github_comment", comments)
+    monkeypatch.setattr(
+        completion, "get_github_app_installation_token", AsyncMock(return_value="token")
+    )
+
+    await completion._post_failure_reply("t1", metadata, "error", None, "run-1")
+
+    assert [call.args[0] for call in session_errors.await_args_list] == ["session-1"]
+    comments.assert_awaited_once()
