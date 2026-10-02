@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from agent.dashboard.admin import is_admin
 from agent.dashboard.options import SUPPORTED_MODEL_IDS, canonical_model_pair
 from agent.github.pull_requests import PullRequest
+from agent.integrations.gitlab.refs import gitlab_repo_config, is_gitlab_repo, repo_full_name
 from agent.review.session import ReviewSessionMetadata
 from agent.slack.client import parse_github_pr_url
 from agent.slack.code_channels import CODE_CHANNEL_SESSION_TS
@@ -55,6 +56,8 @@ def _now_ms() -> int:
 def _parse_repo(full_name: str | None) -> dict[str, str] | None:
     if not isinstance(full_name, str):
         return None
+    if (gitlab := gitlab_repo_config(full_name)) is not None:
+        return gitlab
     parts = full_name.strip().split("/", 1)
     if len(parts) != 2:
         return None
@@ -159,6 +162,12 @@ def _assert_thread_postable(
 
 
 def _metadata_repo(metadata: Mapping[str, Any]) -> tuple[str, str, str]:
+    repo = metadata.get("repo")
+    if isinstance(repo, dict) and is_gitlab_repo(repo):
+        o, n = repo.get("owner"), repo.get("name")
+        if isinstance(o, str) and isinstance(n, str) and o and n:
+            # Listed under its host-qualified name: groups nest and GitHub names never collide.
+            return o, n, repo_full_name(repo)
     owner = metadata.get("repo_owner")
     name = metadata.get("repo_name")
     if isinstance(owner, str) and isinstance(name, str) and owner and name:
@@ -172,11 +181,20 @@ def _metadata_repo(metadata: Mapping[str, Any]) -> tuple[str, str, str]:
     return "", "", ""
 
 
-def repo_config_from_metadata(metadata: Mapping[str, Any]) -> dict[str, str]:
+def repo_config_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     owner, name, _ = _metadata_repo(metadata)
-    if owner and name:
-        return {"owner": owner, "name": name}
-    return {}
+    if not (owner and name):
+        return {}
+    repo = metadata.get("repo")
+    if isinstance(repo, dict) and is_gitlab_repo(repo):
+        # A follow-up keeps working on the GitLab project, not a GitHub namesake.
+        return {
+            "owner": owner,
+            "name": name,
+            "host": "gitlab",
+            "project_id": repo.get("project_id"),
+        }
+    return {"owner": owner, "name": name}
 
 
 def run_status_to_agent_status(thread_status: str | None, run_status: str | None) -> str:

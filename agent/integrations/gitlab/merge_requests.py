@@ -10,6 +10,7 @@ from agent.integrations.gitlab.client import (
     GitLabAPIError,
     create_merge_request,
     find_open_merge_request,
+    get_project,
 )
 from agent.source_context import GitLabRef
 
@@ -32,13 +33,6 @@ def thread_marker(thread_id: str) -> str:
 def marked_thread(description: str) -> str | None:
     match = _THREAD_MARKER.search(description)
     return match.group(1).lower() if match else None
-
-
-def gitlab_project_for(ref: GitLabRef | None, owner: str, repo: str) -> GitLabRef | None:
-    """The run's GitLab project when ``owner/repo`` names it; GitHub repos get ``None``."""
-    if ref is None or ref.project_id is None or not ref.project_path:
-        return None
-    return ref if ref.project_path.lower() == f"{owner}/{repo}".lower() else None
 
 
 def _description(body: str, ref: GitLabRef, thread_id: str, *, resolves_thread: bool) -> str:
@@ -67,10 +61,9 @@ async def open_merge_request(
     thread_id: str,
 ) -> dict[str, JsonValue]:
     """Implement `open_pull_request` for a GitLab project, with the same result shape."""
-    if ref.project_id is None:
-        return {"success": False, "error": "The GitLab project is unknown."}
     try:
-        existing = await find_open_merge_request(ref.project_id, head, base)
+        project_id = ref.project_id or (await get_project(ref.project_path)).id
+        existing = await find_open_merge_request(project_id, head, base)
         if existing is not None:
             return {
                 "success": True,
@@ -80,7 +73,7 @@ async def open_merge_request(
                 "token_kind": "bot",
             }
         merge_request = await create_merge_request(
-            ref.project_id,
+            project_id,
             source_branch=head,
             target_branch=base,
             title=title,

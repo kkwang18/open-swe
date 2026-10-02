@@ -5,7 +5,10 @@ from fastapi import HTTPException
 
 from agent.dashboard.profiles import get_valid_access_token
 from agent.github.app import get_github_app_installation_token
+from agent.integrations.gitlab.client import gitlab_host
+from agent.integrations.gitlab.refs import gitlab_project_path
 from agent.review.styles import normalize_repo_full_name
+from agent.source_context import GitLabRef
 from agent.utils.http import DEFAULT_HTTP_TIMEOUT
 
 
@@ -38,6 +41,14 @@ async def assert_repo_access(full_name: str, token: str) -> str:
 
 
 async def require_repo_access_for_user(login: str, full_name: str) -> str:
+    """The person's GitHub token after checking they can reach the repository.
+
+    A GitLab project is checked against the person's linked GitLab account
+    instead, and has no GitHub token to return.
+    """
+    if (gitlab_path := gitlab_project_path(full_name)) is not None:
+        await _require_gitlab_access(login, gitlab_path)
+        return ""
     token = await get_valid_access_token(login)
     if not token:
         raise HTTPException(401, "github token unavailable, re-login required")
@@ -92,3 +103,16 @@ async def repo_config_for_workspace(full_name: str | None) -> dict[str, str] | N
     await require_repo_access_for_workspace(normalized)
     owner, name = normalized.split("/", 1)
     return {"owner": owner, "name": name}
+
+
+async def _require_gitlab_access(login: str, path: str) -> None:
+    from agent.integrations.gitlab.access import person_access  # noqa: PLC0415
+
+    verdict = await person_access(login, GitLabRef(host=gitlab_host(), project_path=path))
+    # Not 401: the dashboard reads that as an expired GitHub sign-in.
+    if verdict == "unlinked":
+        raise HTTPException(403, "link your GitLab account in Settings to use GitLab projects")
+    if verdict == "no_role":
+        raise HTTPException(403, "you need Developer access to this GitLab project")
+    if verdict == "unavailable":
+        raise HTTPException(503, "GitLab access could not be checked; try again")

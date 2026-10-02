@@ -16,6 +16,26 @@ class TestExtractRepoFromText:
         )
         assert result == {"owner": "my-org", "name": "my-repo"}
 
+    def test_gitlab_projects_are_named_by_token_or_link_only_when_gitlab_is_on(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        token = "fix it in repo:gitlab.example.com/acme/tools/widgets"
+        link = "see https://gitlab.example.com/acme/tools/widgets/-/issues/3"
+        before = extract_repo_from_text(token)
+
+        monkeypatch.setenv("GITLAB_URL", "https://gitlab.example.com")
+        monkeypatch.setenv("GITLAB_TOKEN", "glpat-test")
+        monkeypatch.setenv("GITLAB_WEBHOOK_SECRET", "secret")
+        project = {"owner": "acme/tools", "name": "widgets", "host": "gitlab"}
+
+        assert before is not None and "host" not in before
+        assert extract_repo_from_text(token) == project
+        assert extract_repo_from_text(link) == project
+        assert extract_repo_from_text("repo:my-org/my-repo") == {
+            "owner": "my-org",
+            "name": "my-repo",
+        }
+
 
 class TestLinearWebhookRepoOverride:
     """Test that the Linear webhook handler checks comment body for repo config first."""

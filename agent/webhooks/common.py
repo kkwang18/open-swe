@@ -70,6 +70,7 @@ from agent.github.token import (
     is_bot_token_only_mode,
 )
 from agent.github.token_scope import GITHUB_TOKEN_REPOSITORIES_KEY, event_token_repositories
+from agent.integrations.gitlab.refs import is_gitlab_repo, repo_full_name
 from agent.linear.comments import get_recent_comments  # noqa: F401
 from agent.prompts import prompt
 from agent.review.enabled_repos import is_review_repo_enabled
@@ -363,7 +364,12 @@ def _extract_repo_config_from_thread(thread: ThreadLike) -> dict[str, str] | Non
         owner = repo.get("owner")
         name = repo.get("name")
         if isinstance(owner, str) and owner and isinstance(name, str) and name:
-            return {"owner": owner, "name": name}
+            # A GitLab thread keeps working on its GitLab project.
+            return {
+                "owner": owner,
+                "name": name,
+                **({"host": "gitlab"} if is_gitlab_repo(repo) else {}),
+            }
 
     owner = metadata.get("repo_owner")
     name = metadata.get("repo_name")
@@ -550,6 +556,8 @@ async def upsert_agent_thread_metadata(
             category = "issue"
         elif source_context.pr_number:
             category = "pull_request"
+        elif source_context.gitlab is not None:
+            category = "pull_request" if source_context.gitlab.kind == "merge_request" else "issue"
     metadata: dict[str, Any] = {
         "source": source,
         "origin": source,
@@ -881,9 +889,8 @@ async def workspace_for_repo_config(repo_config: dict[str, str] | None) -> str:
     """
     if not repo_config or not repo_config.get("owner") or not repo_config.get("name"):
         return DEFAULT_WORKSPACE_SLUG
-    return (
-        await workspace_for_repo(repo_config["owner"], repo_config["name"])
-    ) or DEFAULT_WORKSPACE_SLUG
+    owner, _, name = repo_full_name(repo_config).rpartition("/")
+    return (await workspace_for_repo(owner, name)) or DEFAULT_WORKSPACE_SLUG
 
 
 async def post_account_link_prompt(

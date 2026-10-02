@@ -22,8 +22,9 @@ from agent.github.app import get_github_app_installation_token
 from agent.github.comments import derive_pr_state
 from agent.github.pull_requests import AGENT_OPENED_LINK_SOURCE, PullRequest, ThreadLink
 from agent.github.token import GitHubUserAuthRequired
-from agent.integrations.gitlab.access import GITLAB_ACCESS_DENIED, gitlab_access_allowed
-from agent.integrations.gitlab.merge_requests import gitlab_project_for, open_merge_request
+from agent.integrations.gitlab.access import gitlab_access_refusal
+from agent.integrations.gitlab.merge_requests import open_merge_request
+from agent.integrations.gitlab.project import names_project, run_gitlab_project
 from agent.run_config import RunConfig
 from agent.slack.client import (
     get_active_slack_thread,
@@ -1181,9 +1182,10 @@ async def open_pull_request(
 ) -> dict[str, Any]:
     """Implement the `open_pull_request` tool."""
     cfg = _configurable()
-    if (gitlab_project := gitlab_project_for(cfg.gitlab, owner, repo)) is not None:
-        if not await gitlab_access_allowed(cfg):
-            return {"success": False, "error": GITLAB_ACCESS_DENIED}
+    gitlab_project = run_gitlab_project(cfg)
+    if gitlab_project is not None and names_project(gitlab_project, owner, repo):
+        if (refusal := await gitlab_access_refusal(cfg)) is not None:
+            return {"success": False, "error": refusal}
         return await open_merge_request(
             gitlab_project,
             head=head,

@@ -140,7 +140,7 @@ def construct_system_prompt(
     recent_thread_context: str | None = None,
     workspace_repos: list[str] | None = None,
     gitlab_clone_url: str = "",
-    gitlab_access: bool = True,
+    gitlab_access_note: str = "",
 ) -> str:
     """Render the agent's system prompt.
 
@@ -154,7 +154,7 @@ def construct_system_prompt(
         working_dir=working_dir,
         local_checkout=local_checkout,
         gitlab_clone_url=gitlab_clone_url,
-        gitlab_access=gitlab_access,
+        gitlab_access_note=gitlab_access_note,
         desktop=source == "desktop",
         admin_workspaces=admin_workspaces,
         sole_writer=sole_writer,

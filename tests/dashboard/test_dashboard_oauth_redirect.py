@@ -70,17 +70,20 @@ def test_sanitize_redirect_to_rejects_unsafe_targets(monkeypatch) -> None:
         assert sanitize_redirect_to(target) == "https://dashboard.example"
 
 
-def test_sanitize_redirect_to_returns_to_the_linear_link_page_and_nothing_near_it(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("provider", "query"), [("linear", "?session=s1&issue=i1"), ("gitlab", "")]
+)
+def test_sanitize_redirect_to_returns_to_a_link_page_and_nothing_near_it(
+    monkeypatch, provider: str, query: str
 ) -> None:
-    # Signing in from the Linear link button must lead back to linking.
+    # Signing in from a link button must lead back to linking.
     monkeypatch.setenv("DASHBOARD_BASE_URL", "https://dashboard.example")
-    link = "/dashboard/api/integrations/linear/link?session=s1&issue=i1"
+    link = f"/dashboard/api/integrations/{provider}/link{query}"
 
     assert sanitize_redirect_to(link) == f"https://dashboard.example{link}"
     for target in (
-        "/dashboard/api/integrations/linear/link/callback?code=c",
-        "/dashboard/api/integrations/linear/linked",
+        f"/dashboard/api/integrations/{provider}/link/callback?code=c",
+        f"/dashboard/api/integrations/{provider}/linked",
     ):
         assert sanitize_redirect_to(target) == "https://dashboard.example"
 

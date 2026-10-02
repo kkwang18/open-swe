@@ -94,7 +94,7 @@ from agent.input_messages import (
     person_introduction,
     visible_dynamic_context_hashes,
 )
-from agent.integrations.gitlab.access import gitlab_access_allowed
+from agent.integrations.gitlab.access import gitlab_access_allowed, gitlab_access_note
 from agent.integrations.gitlab.repo import gitlab_clone_url, gitlab_commit_identity
 from agent.integrations.gitlab.tools import gitlab_reply
 from agent.integrations.linear.ask import ask_with_options
@@ -1332,7 +1332,7 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 local_checkout=bridged,
                 recent_thread_context=recent_thread_context,
                 gitlab_clone_url=gitlab_clone_url(cfg),
-                gitlab_access=cfg.gitlab is None or await gitlab_access_allowed(cfg),
+                gitlab_access_note=await gitlab_access_note(cfg),
             ),
         }
 

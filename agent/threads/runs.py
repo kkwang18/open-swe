@@ -47,6 +47,7 @@ from agent.input_messages import (
     dynamic_context_hashes_from_messages,
     injected_dynamic_context_hashes_from_metadata,
 )
+from agent.integrations.gitlab.refs import is_gitlab_repo
 from agent.invocation import new_invocation_id, with_invocation_id
 from agent.prompts import prompt
 from agent.slack.client import (
@@ -327,6 +328,9 @@ async def create_dashboard_thread_record(
     if has_repo:
         metadata["repo_owner"] = repo_config["owner"]
         metadata["repo_name"] = repo_config["name"]
+        if is_gitlab_repo(repo_config):
+            # Runs are rebuilt from this metadata; without the host they would be GitHub runs.
+            metadata["repo"] = dict(repo_config)
     elif repo_explicitly_none:
         metadata["repo_explicitly_none"] = True
     if extra_metadata:
@@ -1436,6 +1440,8 @@ async def _create_system_thread_record(
     if repo_config:
         metadata["repo_owner"] = repo_config["owner"]
         metadata["repo_name"] = repo_config["name"]
+        if is_gitlab_repo(repo_config):
+            metadata["repo"] = dict(repo_config)
     if principal.token_repositories is not None:
         metadata[GITHUB_TOKEN_REPOSITORIES_KEY] = list(principal.token_repositories)
     client = langgraph_client()

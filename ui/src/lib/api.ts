@@ -160,6 +160,9 @@ export interface SessionUser {
   /** Whether the server records new threads into the transcript log. */
   transcript_recording?: boolean
   slack_oauth_enabled?: boolean
+  /** The linked GitLab account's username, when one is linked. */
+  gitlab_username?: string | null
+  gitlab_linking_enabled?: boolean
   build_info?: BuildInfo
   api_base_url?: string
   slack_base_url?: string
@@ -1870,6 +1873,11 @@ export function loginUrl(redirectTo?: string): string {
  * provider's consent page have separate cookie jars, so it runs the flow
  * itself and resolves once the connection is stored.
  */
+/** Link a GitLab account: GitLab's sign-in, then back to Open SWE's settings. */
+export function linkGitLab() {
+  window.location.assign(`${API_BASE}/dashboard/api/integrations/gitlab/link`)
+}
+
 export function connectService(
   provider: "slack" | "notion",
   redirectTo?: string,

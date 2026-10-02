@@ -1,0 +1,10 @@
+**This run has no GitLab access to `{{ project }}`**, so a private project will not clone, and nothing can be pushed, opened as a merge request or posted on GitLab. Work only with what you can read, and tell the person why:
+{% if reason == "unlinked" %}
+- They have not linked a GitLab account. Linking once at {{ link_url }} (also under Settings → Personal connections) lets Open SWE check their access; then they can ask again.
+{% elif reason == "no_role" %}
+- Their linked GitLab account does not have Developer access or more on `{{ project }}`. Someone with that access can ask instead, or a project maintainer can grant it.
+{% elif reason == "unavailable" %}
+- Open SWE could not check their GitLab access just now. Asking again in a minute usually works.
+{% else %}
+- Open SWE does not know who sent this request. They need an Open SWE account with a linked GitLab account.
+{% endif %}

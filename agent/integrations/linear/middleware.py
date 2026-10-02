@@ -87,7 +87,10 @@ def _opened_pull_request(result: ToolMessage | Command) -> tuple[str, str, bool]
     url, number = payload.get("url"), payload.get("number")
     if not isinstance(url, str) or not url:
         return None
-    label = f"Pull request #{number}" if isinstance(number, int) else "Pull request"
+    if "/-/merge_requests/" in url:
+        label = f"Merge request !{number}" if isinstance(number, int) else "Merge request"
+    else:
+        label = f"Pull request #{number}" if isinstance(number, int) else "Pull request"
     return label, url, payload.get("created") is True
 
 

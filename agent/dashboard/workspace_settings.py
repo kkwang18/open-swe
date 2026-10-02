@@ -28,6 +28,7 @@ from agent.dashboard.options import (
     model_supports_effort,
     provider_fallback_pair,
 )
+from agent.integrations.gitlab.refs import gitlab_repo_config
 from agent.run_config import RunConfig
 from agent.store import delete_value, get_value, now_iso, put_value
 from agent.utils.gateway import gateway_overrides, resolve_gateway_enabled
@@ -308,6 +309,8 @@ def _env_default_repo() -> str | None:
 def _parse_repo(value: object) -> dict[str, str] | None:
     if not isinstance(value, str):
         return None
+    if (gitlab := gitlab_repo_config(value)) is not None:
+        return gitlab
     owner, sep, name = value.strip().partition("/")
     if not sep or not owner.strip() or not name.strip():
         return None

@@ -134,7 +134,9 @@ def _origin_of(url: str) -> str:
 
 
 # API pages a signed-out person is sent to sign in for; each only redirects onward.
-_LOGIN_CONTINUATION_PATHS = frozenset({"/dashboard/api/integrations/linear/link"})
+_LOGIN_CONTINUATION_PATHS = frozenset(
+    {"/dashboard/api/integrations/linear/link", "/dashboard/api/integrations/gitlab/link"}
+)
 
 
 def _is_blocked_redirect_path(path: str) -> bool:

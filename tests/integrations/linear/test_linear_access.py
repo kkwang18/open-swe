@@ -95,3 +95,31 @@ async def test_unlinked_requester_is_asked_to_link_not_matched_by_email(monkeypa
     assert asked.kind == "link_account"
     assert asked.requester_id == "linear-user"
     assert asked.link_url is not None and "session=session-1" in asked.link_url
+
+
+async def test_a_gitlab_project_skips_the_github_allowlist_and_explains_a_refusal(
+    monkeypatch, no_defaults
+):
+    monkeypatch.setenv("GITLAB_URL", "https://gitlab.example.com")
+    monkeypatch.setenv("GITLAB_TOKEN", "glpat-test")
+    monkeypatch.setenv("GITLAB_WEBHOOK_SECRET", "secret")
+    checked: list[str] = []
+
+    async def routable(owner, name):
+        checked.append(f"{owner}/{name}")
+        return True
+
+    async def no_gitlab_access(_login, _full_name):
+        raise HTTPException(403, "you need Developer access to this GitLab project")
+
+    monkeypatch.setattr(access.common, "is_repo_allowed", lambda _repo: False)
+    monkeypatch.setattr(access, "repo_is_routable", routable)
+    monkeypatch.setattr(access, "require_repo_access_for_user", no_gitlab_access)
+
+    refused = await access.choose_repo(
+        "repo:gitlab.example.com/acme/tools/widgets fix it", ACTOR, {}, ISSUE, "session-1"
+    )
+
+    assert checked == ["gitlab.example.com/acme/tools/widgets"]
+    assert isinstance(refused, Denied)
+    assert "Developer access" in refused.message and "/integrations/gitlab/link" in refused.message

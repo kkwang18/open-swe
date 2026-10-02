@@ -32,6 +32,7 @@ from agent.input_messages import (
     system_introduction,
     visible_dynamic_context_hashes,
 )
+from agent.integrations.gitlab.refs import repo_full_name
 from agent.prompts import load_prompt
 from agent.run_config import Repo
 from agent.slack import client as slack_utils
@@ -51,6 +52,7 @@ from agent.source_context import SlackThreadRef, SourceContext
 from agent.users import User, persist_display_name
 from agent.utils.json_types import as_json_object
 from agent.utils.langsmith import get_langsmith_trace_url
+from agent.utils.repo import gitlab_repo_from_text
 from agent.utils.thread_ops import (
     langgraph_client as get_langgraph_client,
 )
@@ -651,7 +653,8 @@ async def workspace_scoped_default_repo(candidate: Repo, workspace: str | None) 
     """
     if not workspace:
         return candidate
-    preferred_by = await workspace_for_repo(candidate.owner, candidate.name)
+    owner, _, name = repo_full_name(candidate.model_dump()).rpartition("/")
+    preferred_by = await workspace_for_repo(owner, name)
     if preferred_by is None or preferred_by == workspace:
         return candidate
     scoped = (await common.get_workspace_settings(workspace)).default_repo
@@ -742,6 +745,12 @@ async def _process_slack_mention_impl(
     inherited_workspace: str | None = None,
 ) -> bool:
     resolution = repo_resolution or common.SlackRepoResolution()
+    # A GitLab project named in the message is the run's from the start: its sandbox
+    # access is granted, after the sender's access check, only when the run begins.
+    if (named_gitlab := gitlab_repo_from_text(request.text)) is not None:
+        resolution = common.SlackRepoResolution(
+            repo=Repo.model_validate(named_gitlab), explicit=True
+        )
     repo = resolution.repo
     channel_id = request.channel_id
     thread_ts = request.thread_ts

@@ -6,7 +6,7 @@ import httpx
 from langgraph.config import get_config
 from pydantic import JsonValue
 
-from agent.integrations.gitlab.access import GITLAB_ACCESS_DENIED, gitlab_access_allowed
+from agent.integrations.gitlab.access import gitlab_access_refusal
 from agent.integrations.gitlab.client import GitLabAPIError, noteable_kind, post_note
 from agent.run_config import RunConfig
 
@@ -22,8 +22,8 @@ async def gitlab_reply(body: str) -> dict[str, JsonValue]:
     ref = cfg.gitlab
     if ref is None or ref.project_id is None or ref.iid is None:
         return {"success": False, "error": "This run did not come from GitLab."}
-    if not await gitlab_access_allowed(cfg):
-        return {"success": False, "error": GITLAB_ACCESS_DENIED}
+    if (refusal := await gitlab_access_refusal(cfg)) is not None:
+        return {"success": False, "error": refusal}
     kind = noteable_kind(ref.kind)
     if kind is None:
         return {"success": False, "error": f"Cannot reply on a GitLab {ref.kind or 'item'}."}

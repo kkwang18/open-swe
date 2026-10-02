@@ -174,9 +174,21 @@ async def _requester_email(event: GitLabEvent) -> str:
         return ""
 
 
-async def _remember_requester(thread_id: str, email: str, event: GitLabEvent) -> None:
+async def _requester(event: GitLabEvent) -> tuple[str, str]:
+    """``(login, email)`` of the requester's Open SWE account, either empty when unknown.
+
+    A linked GitLab account identifies them for certain; a public email that
+    matches their account is the fallback for people who have not linked.
+    """
+    linked = await User.for_identity("gitlab", str(event.author.id))
+    if linked is not None and linked.github_login:
+        return linked.github_login, ""
+    email = await _requester_email(event)
+    return (await User.login_for_email(email) or "") if email else "", email
+
+
+async def _remember_requester(thread_id: str, login: str, event: GitLabEvent) -> None:
     """Let the requester's Open SWE account act on GitLab from this thread's dashboard view."""
-    login = await User.login_for_email(email) if email else None
     if not login:
         return
     try:
@@ -218,7 +230,7 @@ async def _dispatch(event: GitLabEvent, thread_id: str) -> None:
         "workspace": workspace,
         "environment": workspace,
     }
-    email = await _requester_email(event)
+    login, email = await _requester(event)
     await common.upsert_agent_thread_metadata(
         thread_id,
         source="gitlab",
@@ -228,9 +240,10 @@ async def _dispatch(event: GitLabEvent, thread_id: str) -> None:
         source_context=SourceContext.parse({"gitlab": ref.model_dump(exclude={"discussion_id"})}),
         workspace=workspace,
         # Lists the thread for the requester's Open SWE account; the run still acts as the bot.
+        github_login=login,
         user_email=email,
     )
-    await _remember_requester(thread_id, email, event)
+    await _remember_requester(thread_id, login, event)
     run_input = await _run_input(event, repository, new_thread=new_thread)
     run = await common.dispatch_agent_run(
         thread_id,

@@ -91,3 +91,36 @@ def test_build_configurable_includes_repo_when_configured(
     )
     assert configurable["repo"] == {"owner": "octo", "name": "repo"}
     assert "repo_explicitly_none" not in configurable
+
+
+def test_a_gitlab_project_picked_on_the_dashboard_stays_a_gitlab_project(
+    dashboard_run_client: _FakeLangGraphClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITLAB_URL", "https://gitlab.example.com")
+    monkeypatch.setenv("GITLAB_TOKEN", "glpat-test")
+    monkeypatch.setenv("GITLAB_WEBHOOK_SECRET", "secret")
+    repo = thread_runs._resolve_repo_config("gitlab.example.com/acme/tools/widgets")
+    written: dict[str, Any] = {}
+    create = dashboard_run_client.threads.create
+
+    async def capture(*, thread_id: str, metadata: dict[str, Any], if_exists: str) -> Any:
+        written.update(metadata)
+        return await create(thread_id=thread_id, metadata=metadata, if_exists=if_exists)
+
+    monkeypatch.setattr(dashboard_run_client.threads, "create", capture)
+
+    asyncio.run(
+        thread_runs.create_dashboard_thread_record(
+            "thread-id", login="octo", repo_config=repo, prompt="add a .gitignore"
+        )
+    )
+    # Runs are rebuilt from the thread's metadata, so the host has to survive there.
+    configurable = asyncio.run(
+        thread_runs._build_dashboard_configurable("thread-id", "octo", written)
+    )
+
+    assert configurable["repo"]["host"] == "gitlab"
+    assert (configurable["repo"]["owner"], configurable["repo"]["name"]) == (
+        "acme/tools",
+        "widgets",
+    )
