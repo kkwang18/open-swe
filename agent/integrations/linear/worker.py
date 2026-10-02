@@ -11,7 +11,7 @@ from typing import Literal
 
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import ConflictError
-from langgraph_sdk.schema import Thread
+from langgraph_sdk.schema import Run, RunStatus, Thread
 from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from agent.integrations.base import Denied, PendingQuestion, SelectOption
@@ -379,7 +379,7 @@ def _pending_question(metadata: Mapping[str, object], session_id: str) -> _Pendi
 
 async def _session_guidance(thread_id: str, session_id: str) -> str:
     """The guidance Linear sent when this session started, kept on the session's latest run."""
-    for run in await get_client().runs.list(thread_id, limit=50):
+    for run in await _thread_runs(thread_id, None, limit=50):
         session = run_session(run)
         if session is not None and session.id == session_id:
             return session.guidance
@@ -403,6 +403,16 @@ async def _thread(thread_id: str) -> Thread | None:
         raise
 
 
+async def _thread_runs(thread_id: str, status: RunStatus | None, *, limit: int = 100) -> list[Run]:
+    """The issue thread's runs; none before the issue's first run has created the thread."""
+    try:
+        return await get_client().runs.list(thread_id, status=status, limit=limit)
+    except Exception as exc:
+        if common.is_not_found_error(exc):
+            return []
+        raise
+
+
 def _metadata(thread: Thread | None) -> Mapping[str, object]:
     metadata = thread["metadata"] if thread is not None else None
     return metadata if isinstance(metadata, Mapping) else {}
@@ -410,10 +420,9 @@ def _metadata(thread: Thread | None) -> Mapping[str, object]:
 
 async def _close_superseded_sessions(thread_id: str, session_id: str) -> None:
     """One run per issue thread: a new session interrupts the running ones, so say so there."""
-    client = get_client()
     previous: set[str] = set()
     for status in ("pending", "running"):
-        for run in await client.runs.list(thread_id, status=status, limit=100):
+        for run in await _thread_runs(thread_id, status):
             other = run_session_id(run)
             if other and other != session_id:
                 previous.add(other)
@@ -466,7 +475,7 @@ async def _cancel_session_runs(thread_id: str, session_ids: set[str] | None) -> 
     client = get_client()
     cancelled: dict[str, str] = {}
     for status in ("pending", "running"):
-        for run in await client.runs.list(thread_id, status=status, limit=100):
+        for run in await _thread_runs(thread_id, status):
             session_id = run_session_id(run)
             if session_id and (session_ids is None or session_id in session_ids):
                 cancelled[run["run_id"]] = session_id

@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 from langgraph_sdk.errors import ConflictError, NotFoundError
 
+from agent.integrations.base import Actor
 from agent.integrations.linear import worker
 from agent.integrations.linear.client import linear_activity_id
 from agent.integrations.linear.events import SessionCreated, SessionPrompted
@@ -41,14 +42,23 @@ class _FakeThreads:
 
 
 class _FakeRuns:
-    async def list(self, thread_id: str, *, status: str, limit: int) -> list[dict[str, object]]:
+    def __init__(self, threads: _FakeThreads) -> None:
+        self._threads = threads
+
+    async def list(
+        self, thread_id: str, *, status: str | None, limit: int
+    ) -> list[dict[str, object]]:
+        # As on the server: a thread exists only once something has created it.
+        if thread_id not in self._threads.ids:
+            response = httpx.Response(404, request=httpx.Request("GET", "http://langgraph"))
+            raise NotFoundError("missing", response=response, body=None)
         return []
 
 
 class _FakeClient:
     def __init__(self) -> None:
         self.threads = _FakeThreads()
-        self.runs = _FakeRuns()
+        self.runs = _FakeRuns(self.threads)
 
 
 async def test_stop_before_dispatch_prevents_the_run(monkeypatch):
@@ -80,6 +90,43 @@ async def test_stop_before_dispatch_prevents_the_run(monkeypatch):
         "thought",
         "response",
     ]
+
+
+async def test_first_request_on_a_new_issue_starts_a_run(monkeypatch):
+    client = _FakeClient()
+    dispatched: list[str] = []
+
+    async def post_activity(session_id, content, **_):
+        return None
+
+    async def requester(author, issue):
+        return author
+
+    async def resolve_actor(user, session_id, issue):
+        return Actor(provider_user_id=user.id, github_login="octocat")
+
+    async def choose_repo(request, actor, metadata, issue, session_id):
+        return {"owner": "octocat", "name": "hello-world"}
+
+    async def process_linear_issue(issue_data, repo, *, linear_session, **_):
+        dispatched.append(linear_session.id)
+
+    async def start_delegated_issue(issue_id):
+        return True
+
+    monkeypatch.setattr(worker, "get_client", lambda: client)
+    monkeypatch.setattr(worker, "post_activity", post_activity)
+    monkeypatch.setattr(worker, "dashboard_thread_url", lambda _thread_id: None)
+    monkeypatch.setattr(worker, "requester", requester)
+    monkeypatch.setattr(worker, "resolve_actor", resolve_actor)
+    monkeypatch.setattr(worker, "choose_repo", choose_repo)
+    monkeypatch.setattr(worker, "process_linear_issue", process_linear_issue)
+    monkeypatch.setattr(worker, "start_delegated_issue", start_delegated_issue)
+
+    created = _event("agent_session_created_delegation")
+    await worker.process_linear_event(created)
+
+    assert dispatched == [created.session_id]
 
 
 def test_acknowledgement_ids_are_stable_uuid4():
