@@ -52,7 +52,7 @@ flowchart LR
 - **Operate:** Schedule recurring tasks and monitor opted-in PRs with `/baby-sit`, diagnosing failures and rerunning only evidence-backed flaky jobs.
 - **Customize:** Choose models, reasoning effort, instructions, skills, integrations, and sandbox providers.
 
-Start and continue work from the **dashboard**, **GitHub issues and PR conversations**, or **Slack**. In [Linear](docs/INSTALLATION.md#linear), delegate an issue to Open SWE or @mention it: it works as a Linear agent, showing progress in the issue's agent session and replying with its answer and pull request. Cloud coding follow-ups reuse the thread’s context and sandbox; independent threads can run in parallel.
+Start and continue work from the **dashboard**, **GitHub issues and PR conversations**, or **Slack**. In [Linear](docs/INSTALLATION.md#linear), delegate an issue to Open SWE or @mention it: it works as a Linear agent, showing progress in the issue's agent session and replying with its answer and pull request. From Slack, ask it to file the Linear issue first. Cloud coding follow-ups reuse the thread’s context and sandbox; independent threads can run in parallel.
 
 ## How it works
 
