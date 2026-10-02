@@ -40,6 +40,7 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
     *,
     linear_session: LinearSessionRef | None = None,
     github_login: str | None = None,
+    prompt_context: str = "",
 ) -> None:
     """Process a Linear issue by creating a new LangGraph thread and run.
 
@@ -48,6 +49,8 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
         repo_config: The repo configuration with owner and name.
         linear_session: The agent session the run reports to, when one started it.
         github_login: The requester's already-resolved login, instead of matching email.
+        prompt_context: Linear's prepared context for a new agent session, used in place
+            of the issue's title and description.
     """
     issue_id = issue_data.get("id", "")
     common.logger.info(
@@ -173,15 +176,27 @@ async def process_linear_issue(  # noqa: PLR0912, PLR0915
 
     identifier = full_issue.get("identifier", "") or issue_data.get("identifier", "")
     ticket_url = full_issue.get("url", "") or issue_data.get("url", "")
-    issue_prompt = prompt(
-        "runs/linear-issue",
-        repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
-        title=title,
-        triggered_by=user_name,
-        identifier=identifier,
-        issue_id=issue_id,
-        ticket_url=ticket_url,
-        description=description,
+    issue_prompt = (
+        prompt(
+            "runs/linear-session",
+            repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
+            triggered_by=user_name,
+            identifier=identifier,
+            issue_id=issue_id,
+            ticket_url=ticket_url,
+            prompt_context=prompt_context,
+        )
+        if prompt_context
+        else prompt(
+            "runs/linear-issue",
+            repository=f"{repo_config.get('owner')}/{repo_config.get('name')}",
+            title=title,
+            triggered_by=user_name,
+            identifier=identifier,
+            issue_id=issue_id,
+            ticket_url=ticket_url,
+            description=description,
+        )
     )
     description_blocks: list[dict[str, Any]] = [
         cast(dict[str, Any], create_text_block(issue_prompt))

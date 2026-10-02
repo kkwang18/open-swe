@@ -72,6 +72,7 @@ class _PendingQuestion(BaseModel):
     author: LinearUser | None = None
     options: list[_PendingOption] = Field(default_factory=list)
     link_url: str | None = None
+    prompt_context: str = ""
 
     def options_as_choices(self) -> tuple[SelectOption, ...]:
         return tuple(SelectOption(value=o.value, label=o.label) for o in self.options)
@@ -116,7 +117,15 @@ async def _start_session(event: SessionCreated) -> None:
         await post_activity(event.session_id, {"type": "response", "body": "Stopped."})
         return
     request = event.comment_body if event.from_mention else ""
-    await _run(event.session_id, thread_id, event.issue, event.creator, request, event.comment_id)
+    await _run(
+        event.session_id,
+        thread_id,
+        event.issue,
+        event.creator,
+        request,
+        event.comment_id,
+        prompt_context=event.prompt_context,
+    )
 
 
 async def _continue_session(event: SessionPrompted) -> None:
@@ -152,6 +161,7 @@ async def _continue_session(event: SessionPrompted) -> None:
             pending.author,
             pending.request,
             pending.comment_id,
+            prompt_context=pending.prompt_context,
         )
         return
     choice = interpret_answer(pending.options_as_choices(), event.body)
@@ -168,6 +178,7 @@ async def _continue_session(event: SessionPrompted) -> None:
         pending.request,
         pending.comment_id,
         chosen_repo=repo,
+        prompt_context=pending.prompt_context,
     )
 
 
@@ -194,6 +205,7 @@ async def _run(
     comment_id: str | None,
     *,
     chosen_repo: RepoConfig | None = None,
+    prompt_context: str = "",
 ) -> None:
     """Authorize the requester, settle the repository, then dispatch on the issue thread."""
     user = await requester(author, issue)
@@ -202,7 +214,9 @@ async def _run(
         await post_activity(session_id, {"type": "error", "body": actor.message})
         return
     if isinstance(actor, PendingQuestion):
-        await _save_and_ask(actor, session_id, thread_id, issue, user, request, comment_id)
+        await _save_and_ask(
+            actor, session_id, thread_id, issue, user, request, comment_id, prompt_context
+        )
         return
     thread = await _thread(thread_id)
     repo = (
@@ -214,7 +228,9 @@ async def _run(
         await post_activity(session_id, {"type": "error", "body": repo.message})
         return
     if isinstance(repo, PendingQuestion):
-        await _save_and_ask(repo, session_id, thread_id, issue, user, request, comment_id)
+        await _save_and_ask(
+            repo, session_id, thread_id, issue, user, request, comment_id, prompt_context
+        )
         return
     await _close_superseded_session(thread, session_id)
     issue_data: dict[str, object] = {
@@ -232,6 +248,7 @@ async def _run(
         repo,
         linear_session=LinearSessionRef(id=session_id),
         github_login=actor.github_login,
+        prompt_context=prompt_context,
     )
 
 
@@ -243,6 +260,7 @@ async def _save_and_ask(
     author: LinearUser | None,
     request: str,
     comment_id: str | None,
+    prompt_context: str,
 ) -> None:
     pending = _PendingQuestion(
         kind=question.kind,
@@ -255,6 +273,7 @@ async def _save_and_ask(
         author=author,
         options=[_PendingOption(value=o.value, label=o.label) for o in question.options],
         link_url=question.link_url,
+        prompt_context=prompt_context,
     )
     await _set_pending_question(thread_id, pending)
     await _ask(pending)
@@ -284,6 +303,7 @@ async def resume_after_link(session_id: str, issue_id: str, linear_user_id: str)
             pending.author,
             pending.request,
             pending.comment_id,
+            prompt_context=pending.prompt_context,
         )
     except Exception:
         logger.exception("Resuming a Linear request after linking failed")
