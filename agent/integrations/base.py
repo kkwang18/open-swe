@@ -12,16 +12,22 @@ provider runs in the intake worker after the provider has its 200, or in the
 agent run itself.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, TypedDict
 
-from agent.run_config import Repo
+from agent.run_config import Repo, RunConfig
 from agent.webhooks.event_log import EventRefs
 
 if TYPE_CHECKING:
     # The webhook routes import this module; the agent stack must stay out of the web app.
+    from langchain.agents.middleware import AgentMiddleware
+    from langchain_core.tools import BaseTool
+
     from agent.middleware.dynamic_tools import IntegrationGroup
+
+    # What the agent binds: a LangChain tool or a plain function described from its prompt file.
+    type AgentTool = BaseTool | Callable[..., object]
 
 IntegrationName = Literal["slack", "github", "linear", "gitlab"]
 
@@ -159,4 +165,36 @@ class Integration[EventT, RefT](WebhookIngress[EventT], Protocol):
 
     def tools(self, ref: RefT, actor: Actor) -> IntegrationGroup | None:
         """Provider tools for runs started from this integration only."""
+        ...
+
+
+class IntegrationRuntime(Protocol):
+    """What an integration adds to the agent for a run it takes part in.
+
+    The agent asks every registered runtime instead of branching on ``source``:
+    a runtime that has nothing to do with the run answers with nothing. Unlike
+    :class:`Integration`, which turns a provider's webhook into a run, this half
+    shapes the run itself, so a run continued from the dashboard keeps it.
+    """
+
+    name: ClassVar[IntegrationName]
+
+    def tools(self, cfg: RunConfig) -> Sequence[AgentTool]:
+        """Tools this integration adds to the run; empty when it is not part of the run."""
+        ...
+
+    def restrict_tools(self, cfg: RunConfig, tools: list[AgentTool]) -> list[AgentTool]:
+        """The run's tools with any this integration forbids in its mode removed."""
+        ...
+
+    def source_guidance(self, cfg: RunConfig) -> str | None:
+        """The prompt's source section when this integration owns the run, else ``None``."""
+        ...
+
+    def tool_groups(self, cfg: RunConfig) -> Mapping[str, IntegrationGroup]:
+        """Provider tool groups loaded on demand, keyed by group name."""
+        ...
+
+    def middleware(self, cfg: RunConfig) -> Sequence[AgentMiddleware]:
+        """Middleware the run needs for this integration, such as progress reporting."""
         ...
