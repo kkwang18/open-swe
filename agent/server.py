@@ -98,11 +98,11 @@ from agent.integrations.gitlab.access import gitlab_access_allowed, gitlab_acces
 from agent.integrations.gitlab.repo import gitlab_clone_url, gitlab_commit_identity
 from agent.integrations.gitlab.tools import gitlab_reply
 from agent.integrations.linear.ask import ask_with_options
-from agent.integrations.linear.create_issue import create_linear_issue
 from agent.integrations.linear.middleware import LinearSessionMiddleware
 from agent.integrations.linear.token import linear_app_configured
 from agent.integrations.linear.tools import GROUP_NAME as LINEAR_TOOL_GROUP
 from agent.integrations.linear.tools import linear_tool_group
+from agent.integrations.runtimes import RUNTIMES
 from agent.mcp import load_mcp_tools
 from agent.mcp.instance import instance_mcp_source
 from agent.mcp.user import user_mcp_source
@@ -177,7 +177,8 @@ from agent.sandboxes.state import (
 from agent.sandboxes.tool_access import tools_base_url
 from agent.sandboxes.tool_runtime import ToolSurface, save_tool_context
 from agent.skill_store.store import ORGANIZATION_SKILLS_NAMESPACE, SKILLS_NAMESPACE
-from agent.slack.dm import is_concierge_thread, is_dm_channel
+from agent.slack.dm import is_dm_channel
+from agent.slack.runtime import slack_ask_mode, slack_tools_enabled
 from agent.thread_title import TITLE_GENERATION_MAX_TOKENS, schedule_thread_title_generation
 from agent.threads.blobs import blob_namespace
 from agent.threads.recent_context import RecentContextAudience, recent_thread_context_section
@@ -208,8 +209,6 @@ from agent.tools import (
     list_workspaces,
     listen_events,
     manage_baby_sit,
-    manage_code_channel,
-    manage_incident,
     manage_thread,
     merge_expedited_pr,
     notify_automation_channel,
@@ -230,18 +229,10 @@ from agent.tools import (
     save_user_settings,
     save_user_skill,
     schedule_thread_wakeup,
-    slack_add_reaction,
-    slack_attach_html,
-    slack_list_channel_members,
-    slack_list_channels,
-    slack_move_thread,
     slack_no_reply_needed,
-    slack_post_message,
     slack_read_channel_messages,
     slack_read_thread_messages,
     slack_reply,
-    slack_start_new_thread,
-    start_thread,
     submit_thread_feedback,
     trigger_automation,
     update_automation,
@@ -554,12 +545,10 @@ INCIDENT_AUTOMATIC_EXCLUDED_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+
 # A reaction signals "seen, working on it" to a room. A DM is a two-person
 # conversation where the reply itself is that signal, so reacting there is only
 # clutter on every message the person sends.
-DM_EXCLUDED_TOOLS: frozenset[str] = frozenset({"slack_add_reaction"})
-
-
 def _subagent_model_middleware() -> list[AgentMiddleware[Any, Any, Any]]:
     """Provider guards for subagent model calls.
 
@@ -787,45 +776,18 @@ def _sandbox_file_downloads_enabled(cfg: RunConfig) -> bool:
     )
 
 
-def _slack_tools_enabled(cfg: RunConfig) -> bool:
-    """Return whether the run has trusted Slack source context.
-
-    A web follow-up counts: its `slack_thread` is copied from the thread's own
-    metadata, never from the client, and keeping the tools registered across a
-    surface switch is what keeps the prompt prefix cacheable.
-    """
-    if cfg.source not in {"slack", "schedule", "incidents_agent", DASHBOARD_SOURCE}:
-        return False
-    if cfg.slack_thread is None:
-        return False
-    if _slack_ask_mode(cfg):
-        return bool(cfg.slack_thread.channel_id.strip())
-    return bool(cfg.slack_thread.channel_id.strip() and cfg.slack_thread.thread_ts.strip())
+def _integration_guidance(cfg: RunConfig) -> str | None:
+    """The source section of the integration that owns the run, if one does."""
+    return next(
+        (guidance for runtime in RUNTIMES if (guidance := runtime.source_guidance(cfg))), None
+    )
 
 
 def _initial_reply_surface(cfg: RunConfig) -> ReplySurface:
     """Where this run owes its answer, before anything moves mid-run."""
-    if cfg.source == DASHBOARD_SOURCE or not _slack_tools_enabled(cfg):
+    if cfg.source == DASHBOARD_SOURCE or not slack_tools_enabled(cfg):
         return WEB_REPLY_SURFACE
     return SLACK_REPLY_SURFACE
-
-
-def _slack_ask_mode(cfg: RunConfig) -> bool:
-    """A `/oswe` question: one ephemeral answer, no Slack thread to post into."""
-    return (
-        cfg.slack_ask is True
-        and cfg.slack_thread is not None
-        and bool(cfg.slack_thread.triggering_user_id.strip())
-    )
-
-
-def _slack_concierge_run(cfg: RunConfig) -> bool:
-    """Whether this run answers in a bot DM its owner runs in concierge mode."""
-    return (
-        _slack_tools_enabled(cfg)
-        and cfg.slack_thread is not None
-        and is_concierge_thread(cfg.slack_thread.channel_context, cfg.slack_thread.thread_ts)
-    )
 
 
 def _model_routing_mode(thread_id: str) -> RoutingMode:
@@ -1321,10 +1283,9 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 admin_workspaces=self._admin_workspaces,
                 sole_writer=self._sole_writer,
                 source="background_task" if cfg.background_task_completion else self._source,
-                slack_context=_slack_tools_enabled(cfg),
-                slack_ask=_slack_ask_mode(cfg),
-                slack_by_the_way=_slack_ask_mode(cfg) and bool(cfg.slack_by_the_way_thread_ts),
-                slack_breakout=cfg.slack_breakout is True,
+                source_guidance=(
+                    None if cfg.background_task_completion else _integration_guidance(cfg)
+                ),
                 linear_session=cfg.linear_session is not None and bool(cfg.linear_session.id),
                 linear_guidance=cfg.linear_session.guidance if cfg.linear_session else "",
                 sandbox_file_downloads=_sandbox_file_downloads_enabled(cfg),
@@ -1440,7 +1401,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
             use_gateway = settings.effective_gateway_enabled
             fable_enabled = settings.fable_enabled
 
-    slack_ask_mode = _slack_ask_mode(cfg)
+    ask_mode = slack_ask_mode(cfg)
     linear_issue = as_json_object(cfg.linear_issue.model_dump() if cfg.linear_issue else None)
     linear_project_id = linear_issue.get("linear_project_id", "")
     linear_issue_number = linear_issue.get("linear_issue_number", "")
@@ -1504,7 +1465,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         adaptive_model_routing = not bool(thread_settings.get("requested_model"))
 
     # Auto never falls back outside its tiers: an uncertain route uses Fast.
-    if adaptive_model_routing and not slack_ask_mode:
+    if adaptive_model_routing and not ask_mode:
         if (subagent_model_id, subagent_effort) == (model_id, profile_effort):
             subagent_model_id, subagent_effort = routing_defaults["fast"]
         model_id, profile_effort = routing_defaults["fast"]
@@ -1581,7 +1542,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
 
     # A `/oswe` question runs on the asker's own default model, and never routes
     # adaptively: one question gets one answer, so there is nothing to route.
-    if slack_ask_mode:
+    if ask_mode:
         adaptive_model_routing = False
 
     model_routing_mode = _model_routing_mode(thread_id) if adaptive_model_routing else None
@@ -1670,21 +1631,8 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
             ),
         )
 
-    slack_tools = [
-        create_linear_issue,
-        manage_code_channel,
-        manage_incident,
-        slack_add_reaction,
-        slack_attach_html,
-        slack_list_channel_members,
-        slack_list_channels,
-        slack_move_thread,
-        slack_no_reply_needed,
-        slack_post_message,
-        slack_read_thread_messages,
-        slack_reply,
-        slack_start_new_thread,
-    ]
+    # What each integration taking part in the run adds, in place of per-source branches.
+    integration_tools = [tool for runtime in RUNTIMES for tool in runtime.tools(cfg)]
     static_tools = [
         http_request,
         fetch_url,
@@ -1699,7 +1647,6 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         list_threads,
         get_thread,
         manage_thread,
-        *((start_thread,) if _slack_concierge_run(cfg) else ()),
         *(
             (ask_with_options,)
             if cfg.source == "linear" and cfg.linear_session and cfg.linear_session.id
@@ -1729,20 +1676,9 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         schedule_thread_wakeup,
         listen_events,
         list_event_types,
-        manage_code_channel,
-        manage_incident,
-        slack_add_reaction,
-        slack_attach_html,
-        slack_list_channel_members,
-        slack_list_channels,
-        slack_move_thread,
-        slack_no_reply_needed,
-        slack_post_message,
+        # Reads any channel the bot is in, so it is offered beyond Slack-started runs.
         slack_read_channel_messages,
-        slack_read_thread_messages,
-        slack_reply,
-        slack_start_new_thread,
-        *((create_linear_issue,) if linear_app_configured() else ()),
+        *integration_tools,
         submit_thread_feedback,
         submit_review_assessment_feedback,
         *ADMIN_TOOLS,
@@ -1752,12 +1688,8 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         manage_review_approval_mode,
     ]
     static_tools = permitted(static_tools, tool_access)
-    if not _slack_tools_enabled(cfg):
-        static_tools = [tool for tool in static_tools if tool not in slack_tools]
-    elif _slack_concierge_run(cfg):
-        static_tools = [
-            tool for tool in static_tools if _registered_tool_name(tool) not in DM_EXCLUDED_TOOLS
-        ]
+    for runtime in RUNTIMES:
+        static_tools = runtime.restrict_tools(cfg, static_tools)
     if local_run or not ENV.SLACK_BOT_TOKEN.get():
         static_tools = [
             tool
@@ -1807,7 +1739,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         STOP_SUMMARY_EXCLUDED_TOOLS
         if stop_summary_mode
         else _slack_ask_excluded_tools(cfg)
-        if slack_ask_mode
+        if ask_mode
         else DEEP_AGENT_EXCLUDED_TOOLS | INCIDENT_AUTOMATIC_EXCLUDED_TOOLS
         if incident_automatic
         else DEEP_AGENT_EXCLUDED_TOOLS
@@ -2105,7 +2037,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
             STOP_SUMMARY_EXCLUDED_TOOLS
             if stop_summary_mode
             else _slack_ask_excluded_tools(cfg)
-            if slack_ask_mode
+            if ask_mode
             else DEEP_AGENT_EXCLUDED_TOOLS | INCIDENT_AUTOMATIC_EXCLUDED_TOOLS
             if incident_automatic
             else DEEP_AGENT_EXCLUDED_TOOLS

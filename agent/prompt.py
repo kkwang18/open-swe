@@ -40,10 +40,6 @@ def _load_default_prompt() -> str:
 
 def _render_source_guidance(
     source: str,
-    slack_context: bool,
-    slack_ask: bool = False,
-    slack_breakout: bool = False,
-    slack_by_the_way: bool = False,
     linear_session: bool = False,
     linear_guidance: str = "",
 ) -> str:
@@ -51,18 +47,21 @@ def _render_source_guidance(
         name = "background-task"
     elif source == "linear" and linear_session:
         name = "linear-session"
-    elif source == "slack" and slack_context:
-        name = "slack-by-the-way" if slack_by_the_way else "slack-ask" if slack_ask else "slack"
     elif source in {"linear", "github", "gitlab", "schedule", "dashboard"}:
         name = source
     else:
         name = "generic"
-    if name in {"slack", "schedule"}:
-        guidance = prompt(f"system/source-{name}", breakout=slack_breakout, slack=slack_context)
+    if name == "schedule":
+        # With a Slack destination, Slack's runtime supplies this section instead.
+        guidance = prompt("system/source-schedule", breakout=False, slack=False)
     elif name == "linear-session":
         guidance = prompt("system/source-linear-session", guidance=linear_guidance.strip())
     else:
         guidance = prompt(f"system/source-{name}")
+    return _source_context(guidance)
+
+
+def _source_context(guidance: str) -> str:
     return f"<open_swe_source_context>\n{guidance}\n</open_swe_source_context>"
 
 
@@ -128,12 +127,9 @@ def construct_system_prompt(
     admin_workspaces: bool = False,
     sole_writer: bool = False,
     source: str = "dashboard",
-    slack_context: bool = False,
-    slack_ask: bool = False,
-    slack_breakout: bool = False,
-    slack_by_the_way: bool = False,
     linear_session: bool = False,
     linear_guidance: str = "",
+    source_guidance: str | None = None,
     sandbox_file_downloads: bool = False,
     continued_from_collaborative: bool = False,
     local_checkout: bool = False,
@@ -176,14 +172,12 @@ def construct_system_prompt(
         ),
         source_guidance_section=prompt(
             "system/source-context",
-            source_guidance=_render_source_guidance(
-                source,
-                slack_context,
-                slack_ask,
-                slack_breakout,
-                slack_by_the_way,
-                linear_session=linear_session,
-                linear_guidance=linear_guidance,
+            source_guidance=(
+                _source_context(source_guidance)
+                if source_guidance is not None
+                else _render_source_guidance(
+                    source, linear_session=linear_session, linear_guidance=linear_guidance
+                )
             ),
         ),
         default_prompt_section=_load_default_prompt(),
