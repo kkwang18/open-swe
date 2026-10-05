@@ -68,6 +68,18 @@ Cloud coding runs in persistent, per-thread Linux sandboxes with tooling supplie
 
 Sandboxes have powerful tools and may have network access. Use least-privilege credentials, restrict repositories and integrations, and tailor approval policies to your deployment. Local execution does not provide cloud sandbox isolation.
 
+## Running tests
+
+Install dependencies with `make install` (and `pnpm install` for the dashboard), then run only the tests related to your change:
+
+```bash
+make test TEST_FILE=tests/path/to/test_file.py   # Python tests with pytest
+make integration_tests                            # Python integration tests
+pnpm run test                                     # Dashboard and desktop tests via Turborepo
+```
+
+Some tests need `TEST_ANALYTICS_POSTGRES_URI` and skip without it; see [Develop locally](docs/DEVELOPMENT.md) for details.
+
 ## Documentation
 
 - [Customization guide](docs/CUSTOMIZATION.md) — Models, sandboxes, tools, skills, prompts, triggers, and middleware
